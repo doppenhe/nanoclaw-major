@@ -73,7 +73,7 @@ claw "What's on my calendar today?"
 claw -g "family" "Remind everyone about dinner at 7"
 
 # Send to a group by exact JID
-claw -j "120363336345536173@g.us" "Hello"
+claw -j "1234567890-1234567890@g.us" "Hello"
 
 # Resume a previous session
 claw -s abc123 "Continue where we left off"

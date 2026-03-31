@@ -7,6 +7,7 @@ import makeWASocket, {
   DisconnectReason,
   WAMessageKey,
   WASocket,
+  downloadMediaMessage,
   fetchLatestWaWebVersion,
   makeCacheableSignalKeyStore,
   normalizeMessageContent,
@@ -17,6 +18,7 @@ import makeWASocket, {
 import {
   ASSISTANT_HAS_OWN_NUMBER,
   ASSISTANT_NAME,
+  GROUPS_DIR,
   STORE_DIR,
 } from '../config.js';
 import { getLastGroupSync, setLastGroupSync, updateChatName } from '../db.js';
@@ -88,7 +90,10 @@ export class WhatsAppChannel implements Channel {
       getMessage: async (key: WAMessageKey) => {
         const cached = this.sentMessageCache.get(key.id || '');
         if (cached) {
-          logger.debug({ id: key.id }, 'getMessage: returning cached message for retry');
+          logger.debug(
+            { id: key.id },
+            'getMessage: returning cached message for retry',
+          );
           return cached;
         }
         logger.debug({ id: key.id }, 'getMessage: no cached message found');
@@ -208,7 +213,10 @@ export class WhatsAppChannel implements Channel {
             const phoneJid = pn.includes('@') ? pn : `${pn}@s.whatsapp.net`;
             this.lidToPhoneMap[rawJid.split('@')[0].split(':')[0]] = phoneJid;
             chatJid = phoneJid;
-            logger.info({ lidJid: rawJid, phoneJid }, 'Translated LID via senderPn');
+            logger.info(
+              { lidJid: rawJid, phoneJid },
+              'Translated LID via senderPn',
+            );
           }
 
           const timestamp = new Date(
@@ -238,7 +246,29 @@ export class WhatsAppChannel implements Channel {
             // WhatsApp group mentions use the LID in raw text (e.g. "@80355281346633")
             // instead of the display name. Normalize to @AssistantName for trigger matching.
             if (this.botLidUser && content.includes(`@${this.botLidUser}`)) {
-              content = content.replace(`@${this.botLidUser}`, `@${ASSISTANT_NAME}`);
+              content = content.replace(
+                `@${this.botLidUser}`,
+                `@${ASSISTANT_NAME}`,
+              );
+            }
+
+            // Download and annotate media messages
+            const isMediaMessage =
+              normalized.imageMessage ||
+              normalized.videoMessage ||
+              normalized.audioMessage ||
+              normalized.documentMessage ||
+              normalized.stickerMessage;
+
+            if (isMediaMessage) {
+              const group = groups[chatJid];
+              if (group?.folder) {
+                const result = await this.downloadAndSaveMedia(msg, normalized, group.folder);
+                if (result) {
+                  const annotation = `[${result.mediaLabel} saved: ${result.containerPath}]`;
+                  content = content ? `${content}\n${annotation}` : annotation;
+                }
+              }
             }
 
             // Skip protocol messages with no text content (encryption keys, read receipts, etc.)
@@ -269,7 +299,11 @@ export class WhatsAppChannel implements Channel {
           } else if (chatJid !== rawJid) {
             // LID translation produced a JID that doesn't match any registered group
             logger.warn(
-              { rawJid, translatedJid: chatJid, registeredJids: Object.keys(groups) },
+              {
+                rawJid,
+                translatedJid: chatJid,
+                registeredJids: Object.keys(groups),
+              },
               'Message JID not found in registered groups after translation',
             );
           }
@@ -400,7 +434,9 @@ export class WhatsAppChannel implements Channel {
 
     // Query Baileys' signal repository for the mapping
     try {
-      const pn = await (this.sock.signalRepository as any)?.lidMapping?.getPNForLID(jid);
+      const pn = await (
+        this.sock.signalRepository as any
+      )?.lidMapping?.getPNForLID(jid);
       if (pn) {
         const phoneJid = `${pn.split('@')[0].split(':')[0]}@s.whatsapp.net`;
         this.lidToPhoneMap[lidUser] = phoneJid;
@@ -439,6 +475,61 @@ export class WhatsAppChannel implements Channel {
       }
     } finally {
       this.flushing = false;
+    }
+  }
+
+  private mimetypeToExtension(mimetype: string): string {
+    const map: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/jpg': 'jpg',
+      'image/png': 'png',
+      'image/gif': 'gif',
+      'image/webp': 'webp',
+      'video/mp4': 'mp4',
+      'video/3gpp': '3gp',
+      'audio/ogg': 'ogg',
+      'audio/mpeg': 'mp3',
+      'audio/mp4': 'm4a',
+      'application/pdf': 'pdf',
+    };
+    return map[mimetype.split(';')[0].trim()] || '';
+  }
+
+  private async downloadAndSaveMedia(
+    msg: proto.IWebMessageInfo,
+    normalized: proto.IMessage,
+    folder: string,
+  ): Promise<{ containerPath: string; mediaLabel: string } | null> {
+    try {
+      const mediaType =
+        normalized.imageMessage ? 'image' :
+        normalized.videoMessage ? 'video' :
+        normalized.documentMessage ? 'document' :
+        normalized.audioMessage ? 'audio' :
+        normalized.stickerMessage ? 'sticker' : null;
+      if (!mediaType) return null;
+
+      const mediaLabel =
+        mediaType === 'image' ? 'Image' :
+        mediaType === 'video' ? 'Video' :
+        mediaType === 'audio' ? 'Audio' :
+        mediaType === 'document' ? 'Document' : 'Sticker';
+
+      const mediaMsg = (normalized as any)[`${mediaType}Message`] as { mimetype?: string | null };
+      const ext = this.mimetypeToExtension(mediaMsg?.mimetype || '') || mediaType;
+      const filename = `${msg.key?.id || Date.now()}.${ext}`;
+      const destPath = path.join(GROUPS_DIR, folder, filename);
+
+      const buffer = await downloadMediaMessage(msg as any, 'buffer', {},
+        { logger, reuploadRequest: this.sock!.updateMediaMessage },
+      ) as Buffer;
+
+      fs.writeFileSync(destPath, buffer);
+      logger.info({ folder, filename, bytes: buffer.length }, 'Media saved');
+      return { containerPath: `/workspace/group/${filename}`, mediaLabel };
+    } catch (err) {
+      logger.warn({ err }, 'Failed to download media');
+      return null;
     }
   }
 }
