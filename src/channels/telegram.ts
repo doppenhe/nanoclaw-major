@@ -256,7 +256,7 @@ export class TelegramChannel implements Channel {
 
     this.bot.on('message:photo', (ctx) => {
       const photos = ctx.message.photo;
-      const largest = photos[photos.length - 1];
+      const largest = photos?.[photos.length - 1];
       storeNonText(ctx, '[Photo]', largest?.file_id, '.jpg');
     });
     this.bot.on('message:video', (ctx) => {
