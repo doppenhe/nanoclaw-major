@@ -77,6 +77,32 @@ Standard Markdown works: `**bold**`, `*italic*`, `[links](url)`, `# headings`.
 
 ---
 
+## Wiki
+
+You maintain a persistent knowledge base shared across all groups.
+
+### Three Layers
+
+1. **Sources** (`/workspace/global/sources/`) — raw materials (articles, PDFs, images, voice notes). Immutable after saving.
+2. **Wiki** (`/workspace/global/wiki/`) — your compiled knowledge: summaries, entity pages, concept pages, comparisons, cross-references. You own and maintain these.
+3. **Schema** (`container/skills/wiki/SKILL.md`) — detailed workflows for the three operations below.
+
+### Operations
+
+- **Ingest** — process new sources one at a time. Read source, discuss takeaways, create/update all wiki pages, update index and log. Never batch-process multiple sources.
+- **Query** — read `wiki/index.md` first to find relevant pages, then synthesize answers with citations.
+- **Lint** — periodic health check: contradictions, orphans, missing cross-refs, stale content, gaps.
+
+### Key Files
+
+| Path | Purpose |
+|------|---------|
+| `/workspace/global/wiki/index.md` | Page catalog by category — always read first |
+| `/workspace/global/wiki/log.md` | Chronological activity log (append-only) |
+| `/workspace/global/sources/` | Raw source files (never modify) |
+
+See `container/skills/wiki/SKILL.md` for full ingest/query/lint workflows.
+
 ## Task Scripts
 
 For any recurring task, use `schedule_task`. Frequent agent invocations — especially multiple times a day — consume API credits and can risk account restrictions. If a simple check can determine whether action is needed, add a `script` — it runs first, and the agent is only called when the check passes. This keeps invocations to a minimum.

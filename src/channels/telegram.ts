@@ -193,7 +193,10 @@ export class TelegramChannel implements Channel {
         logger.info({ savePath, label }, 'Telegram media saved');
         return { containerPath, mediaLabel: label };
       } catch (err) {
-        logger.warn({ err, fileId, label }, 'Failed to download Telegram media');
+        logger.warn(
+          { err, fileId, label },
+          'Failed to download Telegram media',
+        );
         return null;
       }
     };
@@ -276,7 +279,12 @@ export class TelegramChannel implements Channel {
     });
     this.bot.on('message:sticker', (ctx) => {
       const emoji = ctx.message.sticker?.emoji || '';
-      storeNonText(ctx, `[Sticker ${emoji}]`, ctx.message.sticker?.file_id, '.webp');
+      storeNonText(
+        ctx,
+        `[Sticker ${emoji}]`,
+        ctx.message.sticker?.file_id,
+        '.webp',
+      );
     });
     this.bot.on('message:location', (ctx) => storeNonText(ctx, '[Location]'));
     this.bot.on('message:contact', (ctx) => storeNonText(ctx, '[Contact]'));
