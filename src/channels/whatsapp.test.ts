@@ -566,11 +566,11 @@ describe('WhatsAppChannel', () => {
         },
       ]);
 
-      // Media download delivers an annotation even without caption text
+      // Voice notes get transcription (falls back when OPENAI_API_KEY not set)
       expect(opts.onMessage).toHaveBeenCalledWith(
         'registered@g.us',
         expect.objectContaining({
-          content: expect.stringContaining('[Audio saved:'),
+          content: '[Voice Message - transcription unavailable]',
         }),
       );
     });

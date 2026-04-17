@@ -30,6 +30,7 @@ import {
   RegisteredGroup,
 } from '../types.js';
 import { registerChannel, ChannelOpts } from './registry.js';
+import { isVoiceMessage, transcribeAudioMessage } from '../transcription.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -298,6 +299,22 @@ export class WhatsAppChannel implements Channel {
                   const annotation = `[${result.mediaLabel} saved: ${result.containerPath}]`;
                   content = content ? `${content}\n${annotation}` : annotation;
                 }
+              }
+            }
+
+            // Voice message transcription
+            if (isVoiceMessage(msg)) {
+              try {
+                const transcript = await transcribeAudioMessage(msg, this.sock);
+                if (transcript && !transcript.startsWith('[Voice Message')) {
+                  content = `[Voice: ${transcript}]`;
+                  logger.info({ chatJid, length: transcript.length }, 'Transcribed voice message');
+                } else {
+                  content = transcript || '[Voice Message - transcription unavailable]';
+                }
+              } catch (err) {
+                logger.error({ err }, 'Voice transcription error');
+                content = '[Voice Message - transcription failed]';
               }
             }
 
