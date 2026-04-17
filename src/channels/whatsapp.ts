@@ -261,7 +261,11 @@ export class WhatsAppChannel implements Channel {
                 const buffer = await downloadMediaMessage(msg, 'buffer', {});
                 const groupDir = path.join(GROUPS_DIR, groups[chatJid].folder);
                 const caption = normalized?.imageMessage?.caption ?? '';
-                const result = await processImage(buffer as Buffer, groupDir, caption);
+                const result = await processImage(
+                  buffer as Buffer,
+                  groupDir,
+                  caption,
+                );
                 if (result) {
                   content = result.content;
                 }
@@ -278,7 +282,7 @@ export class WhatsAppChannel implements Channel {
                 fs.mkdirSync(attachDir, { recursive: true });
                 const filename = path.basename(
                   normalized.documentMessage.fileName ||
-                  `doc-${Date.now()}.pdf`,
+                    `doc-${Date.now()}.pdf`,
                 );
                 const filePath = path.join(attachDir, filename);
                 fs.writeFileSync(filePath, buffer as Buffer);
@@ -299,18 +303,24 @@ export class WhatsAppChannel implements Channel {
             }
 
             // Download and annotate other media messages (skip PDFs — handled above)
-            const isPdf = normalized?.documentMessage?.mimetype === 'application/pdf';
-            const isMediaMessage = !isPdf && (
-              normalized.imageMessage ||
-              normalized.videoMessage ||
-              normalized.audioMessage ||
-              normalized.documentMessage ||
-              normalized.stickerMessage);
+            const isPdf =
+              normalized?.documentMessage?.mimetype === 'application/pdf';
+            const isMediaMessage =
+              !isPdf &&
+              (normalized.imageMessage ||
+                normalized.videoMessage ||
+                normalized.audioMessage ||
+                normalized.documentMessage ||
+                normalized.stickerMessage);
 
             if (isMediaMessage) {
               const group = groups[chatJid];
               if (group?.folder) {
-                const result = await this.downloadAndSaveMedia(msg, normalized, group.folder);
+                const result = await this.downloadAndSaveMedia(
+                  msg,
+                  normalized,
+                  group.folder,
+                );
                 if (result) {
                   const annotation = `[${result.mediaLabel} saved: ${result.containerPath}]`;
                   content = content ? `${content}\n${annotation}` : annotation;
@@ -324,9 +334,13 @@ export class WhatsAppChannel implements Channel {
                 const transcript = await transcribeAudioMessage(msg, this.sock);
                 if (transcript && !transcript.startsWith('[Voice Message')) {
                   content = `[Voice: ${transcript}]`;
-                  logger.info({ chatJid, length: transcript.length }, 'Transcribed voice message');
+                  logger.info(
+                    { chatJid, length: transcript.length },
+                    'Transcribed voice message',
+                  );
                 } else {
-                  content = transcript || '[Voice Message - transcription unavailable]';
+                  content =
+                    transcript || '[Voice Message - transcription unavailable]';
                 }
               } catch (err) {
                 logger.error({ err }, 'Voice transcription error');
@@ -564,28 +578,44 @@ export class WhatsAppChannel implements Channel {
     folder: string,
   ): Promise<{ containerPath: string; mediaLabel: string } | null> {
     try {
-      const mediaType =
-        normalized.imageMessage ? 'image' :
-        normalized.videoMessage ? 'video' :
-        normalized.documentMessage ? 'document' :
-        normalized.audioMessage ? 'audio' :
-        normalized.stickerMessage ? 'sticker' : null;
+      const mediaType = normalized.imageMessage
+        ? 'image'
+        : normalized.videoMessage
+          ? 'video'
+          : normalized.documentMessage
+            ? 'document'
+            : normalized.audioMessage
+              ? 'audio'
+              : normalized.stickerMessage
+                ? 'sticker'
+                : null;
       if (!mediaType) return null;
 
       const mediaLabel =
-        mediaType === 'image' ? 'Image' :
-        mediaType === 'video' ? 'Video' :
-        mediaType === 'audio' ? 'Audio' :
-        mediaType === 'document' ? 'Document' : 'Sticker';
+        mediaType === 'image'
+          ? 'Image'
+          : mediaType === 'video'
+            ? 'Video'
+            : mediaType === 'audio'
+              ? 'Audio'
+              : mediaType === 'document'
+                ? 'Document'
+                : 'Sticker';
 
-      const mediaMsg = (normalized as any)[`${mediaType}Message`] as { mimetype?: string | null };
-      const ext = this.mimetypeToExtension(mediaMsg?.mimetype || '') || mediaType;
+      const mediaMsg = (normalized as any)[`${mediaType}Message`] as {
+        mimetype?: string | null;
+      };
+      const ext =
+        this.mimetypeToExtension(mediaMsg?.mimetype || '') || mediaType;
       const filename = `${msg.key?.id || Date.now()}.${ext}`;
       const destPath = path.join(GROUPS_DIR, folder, filename);
 
-      const buffer = await downloadMediaMessage(msg as any, 'buffer', {},
+      const buffer = (await downloadMediaMessage(
+        msg as any,
+        'buffer',
+        {},
         { logger, reuploadRequest: this.sock?.updateMediaMessage },
-      ) as Buffer;
+      )) as Buffer;
 
       fs.writeFileSync(destPath, buffer);
       logger.info({ folder, filename, bytes: buffer.length }, 'Media saved');
