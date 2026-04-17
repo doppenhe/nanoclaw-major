@@ -42,6 +42,15 @@ vi.mock('fs', async () => {
   };
 });
 
+// Mock image processing (sharp requires native bindings)
+vi.mock('../image.js', () => ({
+  isImageMessage: vi.fn((msg: any) => !!msg.message?.imageMessage),
+  processImage: vi.fn(async (_buffer: Buffer, _dir: string, caption: string) => ({
+    content: caption ? `[Image: attachments/test.jpg] ${caption}` : '[Image: attachments/test.jpg]',
+    relativePath: 'attachments/test.jpg',
+  })),
+}));
+
 // Mock child_process (used for osascript notification)
 vi.mock('child_process', () => ({
   exec: vi.fn(),

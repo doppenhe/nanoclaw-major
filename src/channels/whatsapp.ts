@@ -31,6 +31,7 @@ import {
 } from '../types.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 import { isVoiceMessage, transcribeAudioMessage } from '../transcription.js';
+import { isImageMessage, processImage } from '../image.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -254,6 +255,21 @@ export class WhatsAppChannel implements Channel {
             }
 
             // PDF attachment handling
+            // Image attachment handling
+            if (isImageMessage(msg)) {
+              try {
+                const buffer = await downloadMediaMessage(msg, 'buffer', {});
+                const groupDir = path.join(GROUPS_DIR, groups[chatJid].folder);
+                const caption = normalized?.imageMessage?.caption ?? '';
+                const result = await processImage(buffer as Buffer, groupDir, caption);
+                if (result) {
+                  content = result.content;
+                }
+              } catch (err) {
+                logger.warn({ err, jid: chatJid }, 'Image - download failed');
+              }
+            }
+
             if (normalized?.documentMessage?.mimetype === 'application/pdf') {
               try {
                 const buffer = await downloadMediaMessage(msg, 'buffer', {});
