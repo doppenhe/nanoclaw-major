@@ -2,10 +2,34 @@
 
 You maintain a persistent knowledge base at `/workspace/global/wiki/`. Raw sources live at `/workspace/global/sources/`. This wiki spans personal knowledge and business/work topics.
 
+**The wiki is shared across multiple agents** (NanoClaw, Hermes, Claude clients on other machines, etc.) via the `doppenhe/major_wiki` git repo. Always pull before reading and push after writing — see [Sync Contract](#sync-contract) below.
+
 ## Key Files
 
 - `wiki/index.md` — catalog of all pages by category. Read this first when answering queries or deciding where new content belongs. Update it on every ingest.
 - `wiki/log.md` — append-only chronological log. Add an entry for every ingest, query-filed-as-page, and lint pass.
+
+## Sync Contract
+
+The wiki is a git checkout. Other agents may push changes between your operations. Always:
+
+1. **Before any wiki read or write**, pull latest:
+   ```bash
+   cd /workspace/global && git pull --rebase
+   ```
+2. **After every ingest, lint, or file-as-page operation**, commit and push:
+   ```bash
+   cd /workspace/global && git add wiki/ && git commit -m "<action>: <title>" && git push
+   ```
+   Examples: `ingest: Karpathy LLM Wiki`, `lint: fix orphan pages`, `query-filed: How does X work`.
+
+3. **On push conflict** (rebase failure or non-fast-forward):
+   - Don't force-push.
+   - Save your draft to `wiki/conflicts/{YYYY-MM-DD}-{slug}.md`.
+   - Append a `conflict` entry to `log.md` describing what you tried to write.
+   - Notify the user — they'll resolve manually.
+
+Sources (`/workspace/global/sources/`) are gitignored — they don't sync. If a wiki page references a source another agent doesn't have, that's fine; the page itself is the durable artifact.
 
 ## Operations
 

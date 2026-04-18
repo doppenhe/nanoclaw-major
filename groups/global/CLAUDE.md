@@ -79,19 +79,28 @@ Standard Markdown works: `**bold**`, `*italic*`, `[links](url)`, `# headings`.
 
 ## Wiki
 
-You maintain a persistent knowledge base shared across all groups.
+You maintain a persistent knowledge base shared across all groups **and across multiple agents** (NanoClaw, Hermes, Claude clients on other machines). The wiki is a git checkout of `doppenhe/major_wiki` — other agents may push changes between your operations.
 
 ### Three Layers
 
-1. **Sources** (`/workspace/global/sources/`) — raw materials (articles, PDFs, images, voice notes). Immutable after saving.
-2. **Wiki** (`/workspace/global/wiki/`) — your compiled knowledge: summaries, entity pages, concept pages, comparisons, cross-references. You own and maintain these.
-3. **Schema** (`container/skills/wiki/SKILL.md`) — detailed workflows for the three operations below.
+1. **Sources** (`/workspace/global/sources/`) — raw materials (articles, PDFs, images, voice notes). Immutable after saving. **Gitignored** — local-only, do not sync.
+2. **Wiki** (`/workspace/global/wiki/`) — your compiled knowledge: summaries, entity pages, concept pages, comparisons, cross-references. **Synced via git** — pull before read, push after write.
+3. **Schema** (`container/skills/wiki/SKILL.md`) — detailed workflows for the three operations and the git sync contract.
 
 ### Operations
 
-- **Ingest** — process new sources one at a time. Read source, discuss takeaways, create/update all wiki pages, update index and log. Never batch-process multiple sources.
-- **Query** — read `wiki/index.md` first to find relevant pages, then synthesize answers with citations.
-- **Lint** — periodic health check: contradictions, orphans, missing cross-refs, stale content, gaps.
+- **Ingest** — process new sources one at a time. Pull, read source, discuss takeaways, create/update wiki pages, update index and log, commit, push. Never batch-process multiple sources.
+- **Query** — pull, read `wiki/index.md` first to find relevant pages, then synthesize answers with citations.
+- **Lint** — periodic health check: contradictions, orphans, missing cross-refs, stale content, gaps. Commit + push fixes.
+
+### Sync (always)
+
+```bash
+cd /workspace/global && git pull --rebase    # before reading or writing
+cd /workspace/global && git add wiki/ && git commit -m "<action>: <title>" && git push    # after writing
+```
+
+On push conflict: save draft to `wiki/conflicts/`, log it, notify user. See SKILL.md.
 
 ### Key Files
 
