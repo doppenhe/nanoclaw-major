@@ -38,7 +38,11 @@ interface ContainerInput {
 
 interface ImageContentBlock {
   type: 'image';
-  source: { type: 'base64'; media_type: string; data: string };
+  source: {
+    type: 'base64';
+    media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+    data: string;
+  };
 }
 interface TextContentBlock {
   type: 'text';
@@ -409,12 +413,29 @@ async function runQuery(
 
   // Load image attachments and send as multimodal content blocks
   if (containerInput.imageAttachments?.length) {
+    const supported = [
+      'image/jpeg',
+      'image/png',
+      'image/gif',
+      'image/webp',
+    ] as const;
+    type SupportedMedia = (typeof supported)[number];
+    const isSupported = (m: string): m is SupportedMedia =>
+      (supported as readonly string[]).includes(m);
+
     const blocks: ContentBlock[] = [];
     for (const img of containerInput.imageAttachments) {
       const imgPath = path.join('/workspace/group', img.relativePath);
+      if (!isSupported(img.mediaType)) {
+        log(`Skipping unsupported image media_type: ${img.mediaType}`);
+        continue;
+      }
       try {
         const data = fs.readFileSync(imgPath).toString('base64');
-        blocks.push({ type: 'image', source: { type: 'base64', media_type: img.mediaType, data } });
+        blocks.push({
+          type: 'image',
+          source: { type: 'base64', media_type: img.mediaType, data },
+        });
       } catch (err) {
         log(`Failed to load image: ${imgPath}`);
       }
