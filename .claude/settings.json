@@ -6,5 +6,29 @@
         "us.i.posthog.com"
       ]
     }
+  },
+  "permissions": {
+    "allow": [
+      "Bash(systemctl --user status *)",
+      "Bash(systemctl --user list-timers *)",
+      "Bash(systemctl --user cat *)",
+      "Bash(journalctl:*)",
+      "Bash(onecli secrets list)",
+      "Bash(onecli rules list)",
+      "Bash(onecli agents list)",
+      "Bash(onecli --help)",
+      "Bash(git -C * log *)",
+      "Bash(git -C * show *)",
+      "Bash(git -C * diff *)",
+      "Bash(git -C * status)",
+      "Bash(git -C * ls-tree *)",
+      "Bash(git -C * ls-files *)",
+      "Bash(git -C * ls-remote *)",
+      "Bash(git -C * rev-parse *)",
+      "Bash(git -C * config --get *)",
+      "Bash(git -C * remote -v)",
+      "Bash(git -C * remote get-url *)",
+      "Bash(gh auth token *)"
+    ]
   }
 }

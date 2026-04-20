@@ -2,7 +2,7 @@
  * Container Runner for NanoClaw
  * Spawns agent execution in containers and handles IPC
  */
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess, execSync, spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
@@ -244,15 +244,49 @@ function buildVolumeMounts(
   return mounts;
 }
 
+// Resolve a GitHub token if any writable mount is a git checkout of a doppenhe/* repo.
+// Returns null when no such mount exists. Throws if the token can't be resolved —
+// better to fail at spawn than silently lose push auth.
+export function resolveGithubTokenForMounts(
+  mounts: VolumeMount[],
+): string | null {
+  const needsToken = mounts.some((m) => {
+    if (m.readonly) return false;
+    const configPath = path.join(m.hostPath, '.git', 'config');
+    if (!fs.existsSync(configPath)) return false;
+    return /github\.com[/:]doppenhe\//.test(
+      fs.readFileSync(configPath, 'utf-8'),
+    );
+  });
+  if (!needsToken) return null;
+  try {
+    return execSync('gh auth token -u doppenhe', {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+  } catch {
+    throw new Error(
+      'Container mounts a doppenhe/* git repo but `gh auth token -u doppenhe` failed. Run: gh auth login --hostname github.com --user doppenhe',
+    );
+  }
+}
+
 async function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
   agentIdentifier?: string,
+  injectGithubToken?: boolean,
 ): Promise<string[]> {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
+
+  // GH_TOKEN inherited from the host process env (set only when needed —
+  // see resolveGithubTokenForMounts). Value-less -e keeps the token out of `ps`.
+  if (injectGithubToken) {
+    args.push('-e', 'GH_TOKEN');
+  }
 
   // OneCLI gateway handles credential injection — containers never see real secrets.
   // The gateway intercepts HTTPS traffic and injects API keys or OAuth tokens.
@@ -307,6 +341,7 @@ export async function runContainerAgent(
   fs.mkdirSync(groupDir, { recursive: true });
 
   const mounts = buildVolumeMounts(group, input.isMain);
+  const githubToken = resolveGithubTokenForMounts(mounts);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
   // Main group uses the default OneCLI agent; others use their own agent.
@@ -317,6 +352,7 @@ export async function runContainerAgent(
     mounts,
     containerName,
     agentIdentifier,
+    githubToken != null,
   );
 
   logger.debug(
@@ -348,6 +384,9 @@ export async function runContainerAgent(
   return new Promise((resolve) => {
     const container = spawn(CONTAINER_RUNTIME_BIN, containerArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: githubToken
+        ? { ...process.env, GH_TOKEN: githubToken }
+        : process.env,
     });
 
     onProcess(container, containerName);
