@@ -1,99 +1,81 @@
 # Wiki
 
-You maintain a persistent knowledge base at `/workspace/global/wiki/`. Raw sources live at `/workspace/global/sources/`. This wiki spans personal knowledge and business/work topics.
+You maintain a persistent knowledge base at `/workspace/global/wiki/`. Raw sources live at `/workspace/global/sources/`. The wiki is shared across multiple agents (NanoClaw, Hermes, Claude clients on other machines) via the `doppenhe/major_wiki` git repo.
 
-**The wiki is shared across multiple agents** (NanoClaw, Hermes, Claude clients on other machines, etc.) via the `doppenhe/major_wiki` git repo. Always pull before reading and push after writing — see [Sync Contract](#sync-contract) below.
+> **Read this first, in every session that touches the wiki:**
+> `/workspace/global/wiki/CONVENTIONS.md`
+>
+> That's the canonical rules file — page structure, confidence markers, stub discipline, cross-reference policy, workflow-vs-durable distinction, hot-page handling, index/log maintenance, category taxonomy, the full sync contract. This file (`SKILL.md`) only covers **container-specific workflow**: the bash commands, the workspace paths, and how the container runtime fits in.
+>
+> If this SKILL.md and CONVENTIONS.md disagree on anything, **CONVENTIONS.md wins.**
 
-## Key Files
+---
 
-- `wiki/index.md` — catalog of all pages by category. Read this first when answering queries or deciding where new content belongs. Update it on every ingest.
-- `wiki/log.md` — append-only chronological log. Add an entry for every ingest, query-filed-as-page, and lint pass.
+## Container Workspace Paths
 
-## Sync Contract
+| Path | What it is |
+|---|---|
+| `/workspace/global/` | The wiki repo root (git checkout of `doppenhe/major_wiki`). |
+| `/workspace/global/wiki/` | The wiki pages. |
+| `/workspace/global/wiki/CONVENTIONS.md` | Canonical rules. Read first. |
+| `/workspace/global/wiki/index.md` | Page catalog by category. Read first when querying. |
+| `/workspace/global/wiki/log.md` | Chronological activity log. Append after every write. |
+| `/workspace/global/sources/` | Raw source files. Gitignored, local-only. |
+| `/workspace/global/wiki/conflicts/` | Where drafts go when push fails. |
 
-The wiki is a git checkout. Other agents may push changes between your operations. Always:
+---
 
-1. **Before any wiki read or write**, pull latest:
-   ```bash
-   cd /workspace/global && git pull --rebase
-   ```
-2. **After every ingest, lint, or file-as-page operation**, commit and push:
-   ```bash
-   cd /workspace/global && git add wiki/ && git commit -m "<action>: <title>" && git push
-   ```
-   Examples: `ingest: Karpathy LLM Wiki`, `lint: fix orphan pages`, `query-filed: How does X work`.
+## Sync Commands (container-specific)
 
-3. **On push conflict** (rebase failure or non-fast-forward):
-   - Don't force-push.
-   - Save your draft to `wiki/conflicts/{YYYY-MM-DD}-{slug}.md`.
-   - Append a `conflict` entry to `log.md` describing what you tried to write.
-   - Notify the user — they'll resolve manually.
-
-Sources (`/workspace/global/sources/`) are gitignored — they don't sync. If a wiki page references a source another agent doesn't have, that's fine; the page itself is the durable artifact.
-
-## Operations
-
-### Ingest
-
-When the user provides a source (URL, PDF, image, voice note, document):
-
-1. Save the raw source to `/workspace/global/sources/` — never modify source files after saving.
-2. Read the source thoroughly.
-3. Discuss key takeaways with the user before writing pages.
-4. Create/update wiki pages: summary, entity pages, concept pages, cross-references, comparisons as appropriate.
-5. Update `wiki/index.md` with new/changed pages.
-6. Append to `wiki/log.md`: `## [YYYY-MM-DD] ingest | Source Title`
-
-**Critical:** Process one source at a time. Finish completely (all pages updated, index updated, log entry written) before moving to the next source. Never batch-read multiple sources then process them together — this produces shallow, generic pages.
-
-#### URL sources
-
-For web articles where full text matters, download the content rather than relying on summaries:
+Per CONVENTIONS.md §9, pull before reading or writing, commit + push after writing.
 
 ```bash
-curl -sLo sources/filename.html "https://example.com/article"
+# Before any read or write:
+cd /workspace/global && git pull --rebase
+
+# After every write operation (ingest, update, lint, query-filed):
+cd /workspace/global && git add wiki/ && git commit -m "<action>: <title>" && git push
 ```
 
-For pages that need JavaScript rendering, use `agent-browser`:
+Action values: `ingest`, `update`, `lint`, `query-filed`, `conflict`. Commit title is the page or operation name.
+
+On push conflict, see CONVENTIONS.md §9.3 — save draft to `wiki/conflicts/{YYYY-MM-DD}-{slug}.md`, log it, notify user, never force-push.
+
+---
+
+## Container-Specific Source Tools
+
+When ingesting, save raw sources to `/workspace/global/sources/` before processing.
+
+**Web pages (static HTML):**
+
+```bash
+curl -sLo /workspace/global/sources/filename.html "https://example.com/article"
+```
+
+**Web pages (needs JS rendering):**
 
 ```bash
 agent-browser open https://example.com/article
 agent-browser snapshot -i
 ```
 
-#### PDF sources
-
-Use `pdftotext` if available:
+**PDFs:**
 
 ```bash
-pdftotext sources/document.pdf sources/document.txt
+pdftotext /workspace/global/sources/document.pdf /workspace/global/sources/document.txt
 ```
 
-### Query
+Save sources before processing so a future agent can reread them without re-fetching. Sources are gitignored per §1 of CONVENTIONS.md — they don't sync cross-machine. If another agent references a source you don't have, trust the page; the page is the durable artifact.
 
-When the user asks a question against the wiki:
+---
 
-1. Read `wiki/index.md` to locate relevant pages.
-2. Read those pages.
-3. Synthesize an answer with citations (reference which wiki pages/sources informed the answer).
-4. If the answer is substantial and reusable, offer to file it as a new wiki page.
+## Host-Side Auto-Sync (operational warning)
 
-### Lint
+The host runs a systemd timer `major-repo-sync.timer` every 30 min that pulls + pushes the wiki as belt-and-suspenders reconciliation. If it fires while you're mid-edit across multiple files, it may commit and push your in-progress state, leaving cross-links to not-yet-pushed pages for a ~2-min window. Mitigations are in CONVENTIONS.md §9.4: commit+push at atomic milestones within a session, not only at the end.
 
-Health-check the wiki for:
+---
 
-- Contradictions between pages or with newer sources
-- Orphan pages (not linked from index or other pages)
-- Missing cross-references between related topics
-- Important concepts mentioned but lacking their own page
-- Stale claims superseded by newer sources
-- Data gaps worth investigating
+## Everything Else
 
-Report findings and offer to fix issues.
-
-## Page Conventions
-
-- Use markdown with clear headings.
-- Cross-reference other wiki pages with relative links: `[Entity Name](entity-name.md)`
-- Include a "Sources" section at the bottom of each page listing which raw sources informed it.
-- Use descriptive filenames: `entity-name.md`, `concept-topic.md`, `comparison-x-vs-y.md`, `summary-source-title.md`
+All rules about page structure, confidence markers, stubs, cross-references, workflow-vs-durable, hot-page handling, index and log maintenance, operations (ingest/query/lint), and category taxonomy live in `/workspace/global/wiki/CONVENTIONS.md`. Go there.

@@ -81,36 +81,39 @@ Standard Markdown works: `**bold**`, `*italic*`, `[links](url)`, `# headings`.
 
 You maintain a persistent knowledge base shared across all groups **and across multiple agents** (NanoClaw, Hermes, Claude clients on other machines). The wiki is a git checkout of `doppenhe/major_wiki` — other agents may push changes between your operations.
 
-### Three Layers
+**Canonical rules file (read first, every session that touches the wiki):**
 
-1. **Sources** (`/workspace/global/sources/`) — raw materials (articles, PDFs, images, voice notes). Immutable after saving. **Gitignored** — local-only, do not sync.
-2. **Wiki** (`/workspace/global/wiki/`) — your compiled knowledge: summaries, entity pages, concept pages, comparisons, cross-references. **Synced via git** — pull before read, push after write.
-3. **Schema** (`container/skills/wiki/SKILL.md`) — detailed workflows for the three operations and the git sync contract.
+```
+/workspace/global/wiki/CONVENTIONS.md
+```
 
-### Operations
+That file is authoritative for page structure, confidence markers, stub discipline, cross-reference policy, workflow-vs-durable distinction, hot-page handling, sync contract, index/log maintenance, operations (ingest/query/lint), and category taxonomy. It lives in the wiki repo itself so every agent that pulls the wiki sees the same rules.
 
-- **Ingest** — process new sources one at a time. Pull, read source, discuss takeaways, create/update wiki pages, update index and log, commit, push. Never batch-process multiple sources.
-- **Query** — pull, read `wiki/index.md` first to find relevant pages, then synthesize answers with citations.
-- **Lint** — periodic health check: contradictions, orphans, missing cross-refs, stale content, gaps. Commit + push fixes.
+The container skill at `container/skills/wiki/SKILL.md` covers container-specific workflow (bash commands, workspace paths, how the container runtime fits in) and defers to CONVENTIONS.md on everything else.
 
-### Sync (always)
+### Three Layers (quick reference — full version in CONVENTIONS.md §1)
+
+1. **Sources** (`/workspace/global/sources/`) — raw materials. Immutable, gitignored.
+2. **Wiki** (`/workspace/global/wiki/`) — compiled knowledge. Shared via git.
+3. **Conventions** (`/workspace/global/wiki/CONVENTIONS.md`) — the rules.
+
+### Sync at a glance (full contract in CONVENTIONS.md §9)
 
 ```bash
 cd /workspace/global && git pull --rebase    # before reading or writing
 cd /workspace/global && git add wiki/ && git commit -m "<action>: <title>" && git push    # after writing
 ```
 
-On push conflict: save draft to `wiki/conflicts/`, log it, notify user. See SKILL.md.
+On push conflict: save draft to `wiki/conflicts/`, log it, notify user. Never force-push.
 
 ### Key Files
 
 | Path | Purpose |
 |------|---------|
-| `/workspace/global/wiki/index.md` | Page catalog by category — always read first |
+| `/workspace/global/wiki/CONVENTIONS.md` | Canonical rules — read first |
+| `/workspace/global/wiki/index.md` | Page catalog by category — read first when querying |
 | `/workspace/global/wiki/log.md` | Chronological activity log (append-only) |
 | `/workspace/global/sources/` | Raw source files (never modify) |
-
-See `container/skills/wiki/SKILL.md` for full ingest/query/lint workflows.
 
 ## Task Scripts
 
