@@ -56,6 +56,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
        fi \
     && rm -rf /var/lib/apt/lists/*
 
+# Git auth for github.com: credential helper reads $GH_TOKEN injected by host
+# at container spawn for doppenhe/* repo mounts (see resolveGithubTokenForMounts
+# in src/container-runner.ts). Helper only responds to `get` — never persists.
+RUN git config --system 'credential.https://github.com.helper' '!f() { [ "$1" = get ] && printf "username=x-access-token\npassword=%s\n" "$GH_TOKEN"; }; f'
+
 # Chromium path for agent-browser / Playwright consumers
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium

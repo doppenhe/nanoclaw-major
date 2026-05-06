@@ -172,7 +172,7 @@ export function migrateGroupsToClaudeLocal(): void {
   }
 
   const globalDir = path.join(GROUPS_DIR, 'global');
-  if (fs.existsSync(globalDir)) {
+  if (fs.existsSync(globalDir) && !fs.existsSync(path.join(globalDir, '.git'))) {
     fs.rmSync(globalDir, { recursive: true, force: true });
     actions.push('groups/global/ removed');
   }

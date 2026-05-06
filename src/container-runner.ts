@@ -137,6 +137,7 @@ async function spawnContainer(session: Session): Promise<void> {
   // OneCLI agent identifier is always the agent group id — stable across
   // sessions and reversible via getAgentGroup() for approval routing.
   const agentIdentifier = agentGroup.id;
+  const githubToken = resolveGithubTokenForMounts(mounts);
   const args = await buildContainerArgs(
     mounts,
     containerName,
@@ -145,6 +146,7 @@ async function spawnContainer(session: Session): Promise<void> {
     provider,
     contribution,
     agentIdentifier,
+    githubToken != null,
   );
 
   log.info('Spawning container', { sessionId: session.id, agentGroup: agentGroup.name, containerName });
@@ -155,7 +157,10 @@ async function spawnContainer(session: Session): Promise<void> {
   // immediate kill before the new container touches the file itself.
   fs.rmSync(heartbeatPath(agentGroup.id, session.id), { force: true });
 
-  const container = spawn(CONTAINER_RUNTIME_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  const container = spawn(CONTAINER_RUNTIME_BIN, args, {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: githubToken ? { ...process.env, GH_TOKEN: githubToken } : process.env,
+  });
 
   activeContainers.set(session.id, { process: container, containerName });
   markContainerRunning(session.id);
@@ -239,6 +244,29 @@ function resolveProviderContribution(
   return { provider, contribution };
 }
 
+// Resolve a GitHub token if any writable mount is a git checkout of a doppenhe/* repo.
+// Returns null when no such mount exists. Throws if the token can't be resolved —
+// better to fail at spawn than silently lose push auth.
+export function resolveGithubTokenForMounts(mounts: VolumeMount[]): string | null {
+  const needsToken = mounts.some((m) => {
+    if (m.readonly) return false;
+    const configPath = path.join(m.hostPath, '.git', 'config');
+    if (!fs.existsSync(configPath)) return false;
+    return /github\.com[/:]doppenhe\//.test(fs.readFileSync(configPath, 'utf-8'));
+  });
+  if (!needsToken) return null;
+  try {
+    return execSync('gh auth token -u doppenhe', {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+  } catch {
+    throw new Error(
+      'Container mounts a doppenhe/* git repo but `gh auth token -u doppenhe` failed. Run: gh auth login --hostname github.com --user doppenhe',
+    );
+  }
+}
+
 function buildMounts(
   agentGroup: AgentGroup,
   session: Session,
@@ -293,10 +321,13 @@ function buildMounts(
     mounts.push({ hostPath: fragmentsDir, containerPath: '/workspace/agent/.claude-fragments', readonly: true });
   }
 
-  // Global memory directory — always read-only.
+  // Global memory directory — read-only by default, RW when it's a git
+  // checkout (then resolveGithubTokenForMounts injects GH_TOKEN so the agent
+  // can push). Matches the doppenhe/major_wiki workflow from v1.
   const globalDir = path.join(GROUPS_DIR, 'global');
   if (fs.existsSync(globalDir)) {
-    mounts.push({ hostPath: globalDir, containerPath: '/workspace/global', readonly: true });
+    const isGitCheckout = fs.existsSync(path.join(globalDir, '.git'));
+    mounts.push({ hostPath: globalDir, containerPath: '/workspace/global', readonly: !isGitCheckout });
   }
 
   // Shared CLAUDE.md — read-only, imported by the composed entry point via
@@ -432,12 +463,19 @@ async function buildContainerArgs(
   provider: string,
   providerContribution: ProviderContainerContribution,
   agentIdentifier?: string,
+  injectGithubToken?: boolean,
 ): Promise<string[]> {
   const args: string[] = ['run', '--rm', '--name', containerName, '--label', CONTAINER_INSTALL_LABEL];
 
   // Environment — only vars read by code we don't own.
   // Everything NanoClaw-specific is in container.json (read by runner at startup).
   args.push('-e', `TZ=${TIMEZONE}`);
+
+  // GH_TOKEN inherited from the host process env (set only when needed —
+  // see resolveGithubTokenForMounts). Value-less -e keeps the token out of `ps`.
+  if (injectGithubToken) {
+    args.push('-e', 'GH_TOKEN');
+  }
 
   // Provider-contributed env vars (e.g. XDG_DATA_HOME, OPENCODE_*, NO_PROXY).
   if (providerContribution.env) {
