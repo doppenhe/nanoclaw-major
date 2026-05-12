@@ -38,7 +38,7 @@ The v1 ledger (formerly at this path on the v1 install) covered the WhatsApp/Tel
 |---|---|
 | `container/Dockerfile` | New layer between Playwright env and Bun runtime. Downloads `shmem-mcp` v0.1.35 from `github.com/second-moment-ai/homebrew-tap/releases`, SHA-pinned, installs to `/usr/local/bin/`. |
 | `~/.config/nanoclaw/mount-allowlist.json` | `/home/diego/.shmem/db` added to `allowedRoots` with `allowReadWrite: true`. |
-| `data/v2.db` → `container_configs` row for `ag-1777914843751-fv7my8` (Major Telegram) and `ag-1777914843751-b0l4bv` (DMO Command and Conquer) | `mcp_servers.shmem = { command: "shmem-mcp", env: { SHMEM_PROJECT: "major", SHMEM_TREE_PATH: "/shmem-db", SHMEM_QA_PROVIDER: "mock" } }` and `additional_mounts = [{ hostPath: "/home/diego/.shmem/db", containerPath: "/shmem-db", readonly: false }]`. |
+| `data/v2.db` → `container_configs` row for `ag-1777914843751-fv7my8` (Major Telegram) and `ag-1777914843751-b0l4bv` (DMO Command and Conquer) | `mcp_servers.shmem = { command: "shmem-mcp", env: { SHMEM_PROJECT: "major", SHMEM_TREE_PATH: "/workspace/extra/shmem-db", SHMEM_QA_PROVIDER: "mock" } }` and `additional_mounts = [{ hostPath: "/home/diego/.shmem/db", containerPath: "shmem-db", readonly: false }]`. **`containerPath` must be relative** — NanoClaw's mount-security validator auto-prefixes `/workspace/extra/` and silently rejects (WARN-logged) any absolute path. |
 | Host-side state | `~/.shmem/db/facts/shmem.db` (unified store). Project `major` registered via `shmem admin project create major`. |
 | `groups/telegram_main/CLAUDE.local.md` + DMO mirror | New "Memory surfaces" + "shmem (long-term memory)" sections — write discipline for wiki vs `/workspace/agent/*.md` vs shmem. |
 

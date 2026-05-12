@@ -5,7 +5,9 @@ description: Add shmem (Second Moment AI) as an MCP server for long-term cross-s
 
 # Add shmem — Cross-Session Memory
 
-Installs `shmem-mcp` in the agent container image and wires it into one or more agent groups as a stdio MCP server. Memory lives on the host at `~/.shmem/db` (unified store, project tag per agent group) and is bind-mounted into the container at `/shmem-db`.
+Installs `shmem-mcp` in the agent container image and wires it into one or more agent groups as a stdio MCP server. Memory lives on the host at `~/.shmem/db` (unified store, project tag per agent group) and is bind-mounted into the container at `/workspace/extra/shmem-db`.
+
+> **Gotcha:** NanoClaw's mount-security validator auto-prefixes every additional mount with `/workspace/extra/<basename>` and **rejects any `containerPath` that starts with `/`**. So the `additional_mounts` entry must use `containerPath: "shmem-db"` (relative), and the matching `SHMEM_TREE_PATH` env in the MCP config must be `/workspace/extra/shmem-db` (where the validator landed it). A leading-slash containerPath produces a silent rejection logged at WARN level — the container starts without the mount, shmem-mcp creates an ephemeral DB inside the container's writable layer, and you lose every fact on container restart.
 
 ## What the agent gets
 
@@ -126,18 +128,20 @@ For each `<GROUP_ID>`:
 ```bash
 ./bin/ncl groups config add-mcp-server --id <GROUP_ID> \
   --name shmem --command shmem-mcp \
-  --env '{"SHMEM_PROJECT":"<PROJECT_NAME>","SHMEM_TREE_PATH":"/shmem-db","SHMEM_QA_PROVIDER":"mock"}'
+  --env '{"SHMEM_PROJECT":"<PROJECT_NAME>","SHMEM_TREE_PATH":"/workspace/extra/shmem-db","SHMEM_QA_PROVIDER":"mock"}'
 ```
 
-`ncl` doesn't expose `additional_mounts`, so add the host DB mount via direct DB write:
+`ncl` doesn't expose `additional_mounts`, so add the host DB mount via direct DB write. **`containerPath` must be relative** (see Gotcha at top) — the validator auto-prefixes with `/workspace/extra/`:
 
 ```bash
 pnpm exec tsx scripts/q.ts data/v2.db \
   "UPDATE container_configs \
-   SET additional_mounts = '[{\"hostPath\":\"/home/<user>/.shmem/db\",\"containerPath\":\"/shmem-db\",\"readonly\":false}]', \
+   SET additional_mounts = '[{\"hostPath\":\"/home/<user>/.shmem/db\",\"containerPath\":\"shmem-db\",\"readonly\":false}]', \
        updated_at = datetime('now') \
    WHERE agent_group_id = '<GROUP_ID>'"
 ```
+
+After the restart in Phase 7, verify the mount actually landed via `docker inspect <container> --format '{{range .Mounts}}{{println .Source "->" .Destination}}{{end}}' | grep shmem`. If empty, check `logs/nanoclaw.error.log` for `Additional mount REJECTED` warnings — almost always a containerPath shape issue.
 
 **If the group already has other additional mounts**, merge instead of overwrite — read the current array first and append:
 
@@ -171,7 +175,7 @@ Do not write the same fact into two places. If a fact stops being conversational
 
 ## shmem (long-term memory)
 
-You have an MCP server called `shmem`. Three tools backed by a unified store tagged `project=<PROJECT_NAME>`. Store lives at `/shmem-db` and persists across container restarts.
+You have an MCP server called `shmem`. Three tools backed by a unified store tagged `project=<PROJECT_NAME>`. Store lives at `/workspace/extra/shmem-db` and persists across container restarts.
 
 - At the start of any task that could repeat prior work: call `recall_memory` with a tight keyword query. **Always check for repetition before suggesting a new angle.**
 - When the user finalizes / approves / rejects work: call `add_memory` with the suggested version, the final version, and a one-line reason for any edit.
