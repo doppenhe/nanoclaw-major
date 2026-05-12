@@ -32,6 +32,24 @@ The v1 ledger (formerly at this path on the v1 install) covered the WhatsApp/Tel
 
 **Failure mode:** if a `doppenhe/*` repo is mounted but `gh auth token -u doppenhe` errors, the spawn throws. No silent degradation. Fix: `gh auth login --hostname github.com --user doppenhe`.
 
+### shmem-mcp installed in container image (cross-session memory for Major)
+
+| What | Where |
+|---|---|
+| `container/Dockerfile` | New layer between Playwright env and Bun runtime. Downloads `shmem-mcp` v0.1.35 from `github.com/second-moment-ai/homebrew-tap/releases`, SHA-pinned, installs to `/usr/local/bin/`. |
+| `~/.config/nanoclaw/mount-allowlist.json` | `/home/diego/.shmem/db` added to `allowedRoots` with `allowReadWrite: true`. |
+| `data/v2.db` → `container_configs` row for `ag-1777914843751-fv7my8` (Major Telegram) and `ag-1777914843751-b0l4bv` (DMO Command and Conquer) | `mcp_servers.shmem = { command: "shmem-mcp", env: { SHMEM_PROJECT: "major", SHMEM_TREE_PATH: "/shmem-db", SHMEM_QA_PROVIDER: "mock" } }` and `additional_mounts = [{ hostPath: "/home/diego/.shmem/db", containerPath: "/shmem-db", readonly: false }]`. |
+| Host-side state | `~/.shmem/db/facts/shmem.db` (unified store). Project `major` registered via `shmem admin project create major`. |
+| `groups/telegram_main/CLAUDE.local.md` + DMO mirror | New "Memory surfaces" + "shmem (long-term memory)" sections — write discipline for wiki vs `/workspace/agent/*.md` vs shmem. |
+
+**Why:** Cross-session memory for content work — drafts considered, user pushback patterns, "we touched X last week". The Karpathy wiki captures stable knowledge; CLAUDE.local.md captures identity; `approved_posts.md` captures canonical published records; shmem captures conversational state. Different surfaces, different writers, do not duplicate.
+
+**Why `SHMEM_QA_PROVIDER=mock`:** skips shmem's own LLM synthesis. Major does synthesis itself from raw `recall_memory` results — no extra credentials in the container.
+
+**Restoring on a new host / from backup:** run `shmem admin project create major`, restore `~/.shmem/db/`, ensure mount allowlist contains `~/.shmem/db`, and re-add the two `mcp_servers.shmem` + `additional_mounts` rows to `container_configs`.
+
+**Upgrade path:** when bumping `SHMEM_VERSION` in the Dockerfile, update the `SHMEM_SHA256` arg too. SHA values for each release live in the brew formula at `/home/linuxbrew/.linuxbrew/Homebrew/Library/Taps/second-moment-ai/homebrew-tap/shmem.rb` (under the `linux_amd64` block).
+
 ### `groups/global/` preserved when it's a git checkout
 
 | What | Where |
@@ -57,6 +75,12 @@ Each has `.git/info/exclude` configured locally to ignore NanoClaw-managed files
 ## Per-group memory
 
 `groups/telegram_main/CLAUDE.local.md` and `groups/telegram_dmo-command-and-conquer/CLAUDE.local.md` are kept identical (same content, single source of truth for Major's identity + content mission + voice rules). When updating one, copy to the other.
+
+## Local host-side skills (committed here, not upstream)
+
+| Skill | Path | Purpose |
+|---|---|---|
+| add-shmem | `.claude/skills/add-shmem/` | Install shmem MCP server in an agent group. Wraps the manual recipe carried out for the Major groups (Dockerfile layer, mount allowlist, per-group MCP + mount, CLAUDE.local.md write-discipline section). Reusable for any other NanoClaw install. |
 
 ## Custom container skills (untracked-on-trunk-but-committed-here)
 

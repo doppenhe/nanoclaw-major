@@ -66,6 +66,24 @@ ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 # ~300MB Chromium. We've already installed the system one above.
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
+# ---- shmem-mcp — long-term agent memory --------------------------------------
+# Cross-session memory via the shmem MCP server (second-moment-ai/shmem).
+# Binary only — the host owns the DB at ~/.shmem/db, bind-mounted RW into
+# the container at /shmem-db for groups that opt in (see container_configs
+# additional_mounts + mcp_servers).
+ARG SHMEM_VERSION=0.1.35
+ARG SHMEM_SHA256=0a88ac735a8e52c9ad236107a1a6ee4b3a7d34ecc06c83b2148934b5c51ee5fd
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "amd64" ]; then SHMEM_ARCH=amd64; \
+    elif [ "$ARCH" = "arm64" ]; then SHMEM_ARCH=arm64; \
+    else echo "unsupported arch for shmem: $ARCH" && exit 1; fi && \
+    curl -fsSL -o /tmp/shmem.tgz \
+      "https://github.com/second-moment-ai/homebrew-tap/releases/download/v${SHMEM_VERSION}/shmem_${SHMEM_VERSION}_linux_${SHMEM_ARCH}.tar.gz" && \
+    if [ "$SHMEM_ARCH" = "amd64" ]; then echo "${SHMEM_SHA256}  /tmp/shmem.tgz" | sha256sum -c -; fi && \
+    tar -xzf /tmp/shmem.tgz -C /usr/local/bin shmem-mcp && \
+    chmod +x /usr/local/bin/shmem-mcp && \
+    rm /tmp/shmem.tgz
+
 # ---- Bun runtime -------------------------------------------------------------
 # Install via the official script (handles multi-arch detection), then move
 # the binary to /usr/local/bin so the non-root `node` user can execute it.
