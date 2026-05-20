@@ -445,8 +445,14 @@ async function buildContainerArgs(
 
   // GH_TOKEN inherited from the host process env (set only when needed —
   // see resolveGithubTokenForMounts). Value-less -e keeps the token out of `ps`.
+  // Paired with NO_PROXY=github.com,api.github.com below — the OneCLI proxy
+  // has special-case handling for github.com that rejects raw PAT auth and
+  // expects its own OAuth-app connection. We bypass the proxy for github
+  // entirely so git uses the credential helper that reads $GH_TOKEN directly.
   if (injectGithubToken) {
     args.push('-e', 'GH_TOKEN');
+    args.push('-e', 'NO_PROXY=github.com,api.github.com');
+    args.push('-e', 'no_proxy=github.com,api.github.com');
   }
 
   // Provider-contributed env vars (e.g. XDG_DATA_HOME, OPENCODE_*, NO_PROXY).

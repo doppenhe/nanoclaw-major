@@ -24,13 +24,73 @@ The v1 ledger (formerly at this path on the v1 install) covered the WhatsApp/Tel
 
 | What | Where |
 |---|---|
-| `container/Dockerfile` — system git credential helper | line ~58, after `git` is installed via apt. Helper reads `$GH_TOKEN` env at request time, never persists. |
+| `container/Dockerfile` — system git credential helper | line ~60, after `git` is installed via apt. Helper reads `$GH_TOKEN` env at request time, never persists. |
 | `src/container-runner.ts` — `resolveGithubTokenForMounts(mounts)` | exported function. Scans writable mounts for `.git/config` matching `doppenhe/*`; if any, calls `gh auth token -u doppenhe`. Throws loudly if `gh auth` fails. |
-| `src/container-runner.ts` — `wakeContainer()` plumbing | computes token once, passes `injectGithubToken` into `buildContainerArgs` (adds value-less `-e GH_TOKEN`), and forwards the value via `spawn(... { env })`. |
+| `src/container-runner.ts` — `wakeContainer()` plumbing | computes token once, passes `injectGithubToken` into `buildContainerArgs` (adds value-less `-e GH_TOKEN` **and** `-e NO_PROXY=github.com,api.github.com`), and forwards the value via `spawn(... { env })`. |
 
-**Why:** Major's content/wiki workflows require `git push` from inside the container directly to `doppenhe/major_content` and `doppenhe/major_wiki`. Without this, every push needs a host-side detour. Modeled exactly after the v1 implementation.
+**Why:** Major's content/wiki workflows require `git push` from inside the container directly to `doppenhe/major_content` and `doppenhe/major_wiki`.
 
-**Failure mode:** if a `doppenhe/*` repo is mounted but `gh auth token -u doppenhe` errors, the spawn throws. No silent degradation. Fix: `gh auth login --hostname github.com --user doppenhe`.
+**Why bypass OneCLI for github specifically:** OneCLI's proxy special-cases `github.com` — it ignores `generic` vault secrets for that host and expects its own GitHub OAuth-app connection. A raw PAT in the vault is silently rejected (`HTTP 401 "invalid credentials"`). Bypassing the proxy for `github.com` lets the existing credential-helper + `$GH_TOKEN` path work. The PAT lives in Bitwarden (record-of-truth) and gh CLI (host-side credential store, queried per spawn). Tested 2026-05-20: clone + push from inside a fresh container succeeded only with NO_PROXY set; failed with `remote: invalid credentials` without it.
+
+**Rotation:** generate fresh fine-grained PAT (Contents:RW on `major_content` + `major_wiki`), save to Bitwarden as `GITHUB_PAT_DOPPENHE`, then `echo <pat> | gh auth login --hostname github.com --with-token`. No restart needed — the next container spawn re-reads `gh auth token`.
+
+**Failure mode:** if a `doppenhe/*` repo is mounted but `gh auth token -u doppenhe` errors, the spawn throws. No silent degradation. Fix: `gh auth login --hostname github.com --with-token`.
+
+### Credential pattern (post 2026-05-20 consolidation)
+
+The "BW + OneCLI" pattern is now the standard for HTTP API keys; git auth is the documented exception above.
+
+| Credential | BW item | OneCLI vault | Injection | Used by |
+|---|---|---|---|---|
+| Anthropic API | (existing) | `Anthropic` | proxy (native handling) | All agents |
+| AI Tinkerers | `AITINKERERS_API_KEY` | `AITINKERERS_API_KEY` host=`aitinkerers.org` Bearer | proxy header inject | telegram_main `ait-api` skill |
+| Scrapecreators | (user choice) | `SCRAPECREATORS_API_KEY` host=`api.scrapecreators.com` `x-api-key` | proxy header inject | (no active consumer; future skills) |
+| GitHub PAT (doppenhe) | `GITHUB_PAT_DOPPENHE` | **not in vault** (proxy can't inject) | env var `$GH_TOKEN` via gh CLI + git credential helper, bypassing proxy via NO_PROXY | container-runner.ts for `doppenhe/*` repo mounts |
+
+Plaintext key files (`*.ait_api_key`, `aitinkerers_api_key.txt`, `.scrape_creators_key`, `.github_token`) are banned. Browser sessions (`twitter_session.json`, `linkedin_session.json`) remain as files because they're multi-value cookie blobs that refresh in-use — different shape from API keys, no OneCLI fit.
+
+#### Credential rotation playbook
+
+Use this when the user says a token is expired, leaked, or needs to change. **Default to "test the existing key first" before assuming rotation is needed** — a 401 from one endpoint doesn't always mean the key is dead; check the proxy state too (see prior episode where AIT key was working but vault entry was missing).
+
+**Diagnosis order, before rotating anything:**
+1. Read the key from its source (`onecli secrets list` shows vault entries; gh CLI for github via `gh auth status`).
+2. Test directly from the host with `curl` (bypasses OneCLI) — confirms whether the key itself is alive.
+3. Test via `onecli run --agent <agent-id> -- curl ...` — confirms whether the proxy injection path works.
+4. If host-direct works but proxy doesn't: vault is misconfigured (wrong host pattern, missing entry, agent in `selective` mode). Fix vault, not the key.
+5. If both fail: key actually needs rotation.
+
+**HTTP API keys (AIT, Scrapecreators, future):**
+
+| Step | Command |
+|---|---|
+| 1. Generate new key | User obtains from the provider's dashboard (`aitinkerers.org/profile`, `scrapecreators.com`, etc.) |
+| 2. Save to Bitwarden | User updates the BW item (`AITINKERERS_API_KEY` etc.) |
+| 3. Find the vault entry ID | `onecli secrets list \| grep -B2 <NAME>` |
+| 4. Update vault value | `onecli secrets update --id <id> --value <new>` (rotates without changing host/header config) |
+| 5. Verify | `onecli run --agent <agent-id> -- curl ...` against a benign endpoint; confirm HTTP 200 |
+| 6. No restart | Gateway resolves secrets per request — already-running containers pick up the new value on next call |
+
+**GitHub PAT (doppenhe) — different path, do NOT try the vault:**
+
+OneCLI's proxy special-cases `github.com` and rejects vault PATs. The PAT flows BW → gh CLI → `GH_TOKEN` env → container, bypassing OneCLI via `NO_PROXY=github.com`. See "GitHub credential injection for `doppenhe/*` mounts" above.
+
+| Step | Command |
+|---|---|
+| 1. Generate fine-grained PAT | github.com/settings/personal-access-tokens. Scope: `doppenhe/major_content` + `doppenhe/major_wiki`. Permissions: **Contents: Read+Write**, Metadata: Read (auto). |
+| 2. Save to Bitwarden | Update the `GITHUB_PAT_DOPPENHE` item |
+| 3. Replace gh CLI token | `echo <pat> \| gh auth login --hostname github.com --with-token` |
+| 4. Verify host can read it | `gh auth token -u doppenhe \| head -c 12` — expect `github_pat_1...` |
+| 5. Verify from inside next container | After next session spawn: `docker exec <container> bash -c 'cd /tmp && git clone --depth 1 https://github.com/doppenhe/major_content.git t && rm -rf t'` — expect exit 0 |
+| 6. No restart | `container-runner.ts` calls `gh auth token` at spawn time, so next container spawn picks up the new PAT. Already-running containers still hold the old PAT in env — kill them only if you need them refreshed before their natural exit. |
+
+**Anthropic API key:** managed natively by OneCLI's `anthropic` secret type. Rotation is `onecli secrets update --id <Anthropic-id> --value <new>`. If Anthropic auth fails container-wide, also check OAuth token state via `/setup`.
+
+**Common gotchas (learned the hard way):**
+- New agent groups are created in `secretMode: selective` by default — even if the matching secret exists in the vault, it won't be injected. Fix: `onecli agents set-secret-mode --id <agent-id> --mode all` (or explicitly assign the secret). Major Telegram is already `all`.
+- OneCLI vault is **write-only** — no `secrets get/show/reveal` command. You can't write a script that reads a value back out. Plan accordingly.
+- Adding a secret with `--type generic` requires either `--header-name` or `--param-name` — the proxy needs to know HOW to inject. For Bearer auth: `--header-name Authorization --value-format "Bearer {value}"`. For API-key headers: `--header-name x-api-key --value-format "{value}"`.
+- After rotating a key, the next container spawn doesn't need a restart of the nanoclaw service. The OneCLI gateway is shared, and `container-runner.ts` re-reads env at spawn time.
 
 ### shmem-mcp installed in container image (cross-session memory for Major)
 
