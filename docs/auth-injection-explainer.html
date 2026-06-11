@@ -12,13 +12,10 @@
     --border: #2e3b4a;
     --text: #d8e1ea;
     --muted: #8a9bac;
-    --host: #4cc38a;       /* green — trusted host */
-    --host-dim: #173527;
-    --container: #6aa6ff;  /* blue — agent container */
-    --container-dim: #15243d;
-    --secret: #ff6b6b;     /* red — secrets */
-    --secret-dim: #3a1d22;
-    --accent: #f0b35c;     /* amber — flow */
+    --host: #4cc38a;
+    --container: #6aa6ff;
+    --secret: #ff6b6b;
+    --accent: #f0b35c;
     --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
@@ -38,99 +35,15 @@
     background: var(--panel2); border: 1px solid var(--border);
     border-radius: 4px; padding: 1px 6px; white-space: nowrap;
   }
-  .key { color: var(--accent); }
-
-  /* ---------- zone diagram ---------- */
-  .zones {
-    display: grid;
-    grid-template-columns: 1fr 56px 1fr;
-    gap: 0; margin-top: 24px;
-    align-items: stretch;
-  }
-  .zone {
-    border-radius: 14px; padding: 20px;
-    border: 1.5px solid;
-  }
-  .zone.host { border-color: var(--host); background: linear-gradient(180deg, var(--host-dim), var(--panel)); }
-  .zone.agent { border-color: var(--container); background: linear-gradient(180deg, var(--container-dim), var(--panel)); }
-  .zone h3 {
-    margin: 0 0 4px; font-size: 13px; letter-spacing: 2px; text-transform: uppercase;
-  }
-  .zone.host h3 { color: var(--host); }
-  .zone.agent h3 { color: var(--container); }
-  .zone .tagline { font-size: 13px; color: var(--muted); margin: 0 0 16px; }
-  .node {
-    background: var(--panel2); border: 1px solid var(--border);
-    border-radius: 10px; padding: 12px 14px; margin-bottom: 12px;
-  }
-  .node:last-child { margin-bottom: 0; }
-  .node .name { font-weight: 600; font-size: 14.5px; display: flex; align-items: center; gap: 8px; }
-  .node .name .port { font-family: var(--mono); font-size: 11px; color: var(--muted); font-weight: 400; }
-  .node ul { margin: 6px 0 0; padding-left: 18px; font-size: 13.5px; color: var(--muted); }
-  .node ul li { margin: 3px 0; }
-  .node ul li code { font-size: 0.95em; }
-  .node.secrets { border-color: #5a2a30; background: linear-gradient(180deg, var(--secret-dim), var(--panel2)); }
-  .node.secrets .name { color: var(--secret); }
-  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
-  .dot.green { background: var(--host); }
-  .dot.blue { background: var(--container); }
-  .dot.red { background: var(--secret); }
-  .dot.amber { background: var(--accent); }
-
-  /* the boundary strip between zones */
-  .boundary {
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    position: relative;
-  }
-  .boundary .line {
-    position: absolute; top: 8px; bottom: 8px; left: 50%; width: 0;
-    border-left: 2px dashed #46586c;
-  }
-  .boundary .label {
-    position: relative; z-index: 1;
-    writing-mode: vertical-rl; transform: rotate(180deg);
-    font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
-    color: var(--muted); background: var(--bg); padding: 10px 2px;
-  }
-
-  /* arrows crossing the boundary */
-  .crossings { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
-  .crossing {
-    display: grid; grid-template-columns: 1fr 56px 1fr; align-items: center;
-  }
-  .crossing .what {
-    font-size: 13px; padding: 8px 12px; border-radius: 8px;
+  .diagram {
     background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 24px 16px; margin-top: 18px;
+    overflow-x: auto;
   }
-  .crossing .what b { color: var(--accent); font-weight: 600; }
-  .crossing .arr {
-    text-align: center; color: var(--accent); font-size: 20px; font-family: var(--mono);
-  }
-  .crossing .blank { visibility: hidden; }
+  .diagram .mermaid { display: flex; justify-content: center; }
+  .legend { font-size: 13px; color: var(--muted); margin-top: 10px; text-align: center; }
+  .legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 4px 0 14px; vertical-align: 0; }
 
-  /* ---------- request flow ---------- */
-  .flow { counter-reset: step; margin-top: 20px; }
-  .step {
-    display: grid; grid-template-columns: 44px 1fr; gap: 16px;
-    padding: 14px 0; border-bottom: 1px solid var(--border);
-  }
-  .step:last-child { border-bottom: none; }
-  .step::before {
-    counter-increment: step; content: counter(step);
-    width: 32px; height: 32px; border-radius: 50%;
-    background: var(--panel2); border: 1.5px solid var(--accent); color: var(--accent);
-    display: flex; align-items: center; justify-content: center;
-    font-weight: 700; font-size: 15px; margin-top: 2px;
-  }
-  .step .t { font-weight: 600; font-size: 15px; }
-  .step .t .where { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 600; border-radius: 4px; padding: 2px 7px; margin-left: 8px; vertical-align: 2px;}
-  .where.h { color: var(--host); background: var(--host-dim); }
-  .where.c { color: var(--container); background: var(--container-dim); }
-  .where.g { color: var(--accent); background: #3a2d15; }
-  .step .d { color: var(--muted); font-size: 14px; margin-top: 3px; max-width: 860px; }
-  .step .d code { white-space: normal; }
-
-  /* ---------- where-things-live table ---------- */
   table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 14.5px; }
   th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
   th { font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); }
@@ -138,7 +51,6 @@
   td.no { color: var(--secret); }
   td:first-child { font-weight: 600; }
 
-  /* ---------- callouts ---------- */
   .callouts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
   .callout {
     background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--accent);
@@ -147,15 +59,7 @@
   .callout .t { font-weight: 600; font-size: 14.5px; margin-bottom: 4px; }
   .callout .d { font-size: 13.5px; color: var(--muted); }
   footer { margin-top: 60px; font-size: 12.5px; color: #5b6b7c; border-top: 1px solid var(--border); padding-top: 16px; }
-
-  @media (max-width: 760px) {
-    .zones, .crossing { grid-template-columns: 1fr; }
-    .boundary { display: none; }
-    .crossing .arr { transform: rotate(90deg); }
-    .crossing .blank { display: none; }
-    .callouts { grid-template-columns: 1fr; }
-    .zone.agent { margin-top: 14px; }
-  }
+  @media (max-width: 760px) { .callouts { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -171,131 +75,84 @@
     HTTPS requests at the network boundary.</strong> The container only ever sees a proxy address.
   </p>
 
-  <h2>The two worlds</h2>
-  <div class="zones">
-    <div class="zone host">
-      <h3>Host machine — trusted</h3>
-      <p class="tagline">Secrets live here and never leave.</p>
-      <div class="node secrets">
-        <div class="name"><span class="dot red"></span>OneCLI Vault <span class="port">(encrypted, at rest)</span></div>
-        <ul>
-          <li>API keys &amp; OAuth access + refresh tokens</li>
-          <li><b>Host patterns</b> — which credential belongs to which API hostname (e.g. <code>api.stripe.com</code>)</li>
-          <li><b>Per-agent allow-lists</b> — which agent may use which secret</li>
-          <li>Approval rules for sensitive actions</li>
-        </ul>
-      </div>
-      <div class="node">
-        <div class="name"><span class="dot amber"></span>OneCLI Gateway <span class="port">proxy :10255 · API/UI :10254</span></div>
-        <ul>
-          <li>TLS-intercepting forward proxy with its own private CA</li>
-          <li>Looks up credentials per request, injects auth headers</li>
-          <li>Runs OAuth refresh flows itself — agent never sees tokens</li>
-        </ul>
-      </div>
-      <div class="node">
-        <div class="name"><span class="dot green"></span>NanoClaw host process</div>
-        <ul>
-          <li>Routes chat messages, spawns one container per agent group</li>
-          <li>Registers each agent group with the gateway before spawn</li>
-          <li>Delivers approval requests to a human via DM</li>
-        </ul>
-      </div>
-    </div>
+  <h2>Architecture — the two worlds</h2>
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart LR
+  subgraph HOST["&nbsp;HOST MACHINE — TRUSTED&nbsp;"]
+    direction TB
+    VAULT[("<b>OneCLI Vault</b> (encrypted)<br/>API keys · OAuth access + refresh tokens<br/>host patterns → which key fits which API<br/>per-agent allow-lists · approval rules")]
+    GW["<b>OneCLI Gateway</b><br/>proxy :10255 · API/UI :10254<br/>TLS-intercepting proxy with private CA<br/>injects credentials per request"]
+    NC["<b>NanoClaw host process</b><br/>routes chat → spawns one<br/>container per agent group"]
+    GW <-->|"credential lookup<br/>per request"| VAULT
+    NC -->|"1 · ensureAgent(group)<br/>2 · fetch container-config"| GW
+  end
 
-    <div class="boundary">
-      <div class="line"></div>
-      <div class="label">container boundary</div>
-    </div>
+  subgraph CONT["&nbsp;AGENT CONTAINER — UNTRUSTED&nbsp;"]
+    direction TB
+    AGENT["<b>Claude agent</b><br/>makes plain HTTPS calls<br/>to real API URLs — no auth code"]
+    ENV["<b>Environment</b> (set at docker run)<br/>HTTPS_PROXY = http://x:&lt;agent-token&gt;@host:10255<br/>CA cert mounted read-only<br/>placeholders only — zero real secrets"]
+    AGENT -.reads.- ENV
+  end
 
-    <div class="zone agent">
-      <h3>Agent container — untrusted</h3>
-      <p class="tagline">Holds zero real credentials. Ever.</p>
-      <div class="node">
-        <div class="name"><span class="dot blue"></span>Claude agent <span class="port">(Bun runtime, --rm)</span></div>
-        <ul>
-          <li>Makes <b>plain HTTPS calls to the real API URLs</b> — <code>curl https://api.github.com/user/repos</code></li>
-          <li>No auth headers, no keys, no OAuth dance</li>
-          <li>Taught by a skill file: "just call the API; the gateway handles auth"</li>
-        </ul>
-      </div>
-      <div class="node">
-        <div class="name"><span class="dot blue"></span>Environment <span class="port">(set at docker run)</span></div>
-        <ul>
-          <li><code>HTTPS_PROXY=http://x:&lt;agent-token&gt;@host.docker.internal:10255</code></li>
-          <li>The token <b>identifies the agent to the gateway</b> — it is not a service credential and unlocks nothing outside this proxy</li>
-          <li><code>NODE_EXTRA_CA_CERTS</code> / <code>SSL_CERT_FILE</code> → gateway's CA cert, mounted read-only at <code>/tmp/onecli-gateway-ca.pem</code></li>
-          <li>Placeholders only: e.g. <code>CLAUDE_CODE_OAUTH_TOKEN=placeholder</code> — the real one is swapped in by the proxy</li>
-        </ul>
-      </div>
-      <div class="node">
-        <div class="name"><span class="dot blue"></span>Credential stubs <span class="port">(for MCP servers)</span></div>
-        <ul>
-          <li>Some tools insist on a credentials file before starting</li>
-          <li>Stub files contain the literal string <code>"onecli-managed"</code> — never a real value</li>
-        </ul>
-      </div>
-    </div>
-  </div>
+  API["<b>Real APIs</b><br/>gmail · github · stripe · anthropic"]
 
-  <div class="crossings">
-    <div class="crossing">
-      <div class="what"><b>Spawn time →</b> host registers the agent, fetches proxy config from the gateway, passes it as <code>-e</code> env vars + a read-only CA cert mount</div>
-      <div class="arr">⟶</div>
-      <div class="what blank">.</div>
-    </div>
-    <div class="crossing">
-      <div class="what blank">.</div>
-      <div class="arr">⟵</div>
-      <div class="what"><b>Request time →</b> every outbound HTTPS call exits through the proxy, where credentials are injected in-flight</div>
+  NC ==>|"spawn: docker run<br/>-e proxy env · -v ca.pem:ro"| CONT
+  AGENT ==>|"all outbound HTTPS<br/>(identified by agent token)"| GW
+  GW ==>|"re-encrypted +<br/>Authorization header"| API
+
+  classDef hostZone fill:#173527,stroke:#4cc38a,stroke-width:2px,color:#d8e1ea
+  classDef contZone fill:#15243d,stroke:#6aa6ff,stroke-width:2px,color:#d8e1ea
+  classDef vault fill:#3a1d22,stroke:#ff6b6b,stroke-width:2px,color:#ffd7d7
+  classDef gw fill:#3a2d15,stroke:#f0b35c,stroke-width:2px,color:#ffe9c7
+  classDef plain fill:#202a35,stroke:#46586c,color:#d8e1ea
+  class HOST hostZone
+  class CONT contZone
+  class VAULT vault
+  class GW gw
+  class NC,AGENT,ENV,API plain
+    </pre>
+    <div class="legend">
+      <span class="sw" style="background:#ff6b6b"></span> secrets (never leave the host)
+      <span class="sw" style="background:#f0b35c"></span> gateway (injection point)
+      <span class="sw" style="background:#4cc38a"></span> trusted host zone
+      <span class="sw" style="background:#6aa6ff"></span> untrusted container zone
     </div>
   </div>
 
   <h2>Life of a request</h2>
-  <p class="lede" style="font-size:15px">What happens when the agent runs <code>curl https://api.stripe.com/v1/charges</code> — with no API key anywhere in the container:</p>
-  <div class="flow">
-    <div class="step">
-      <div>
-        <div class="t">Agent makes a normal HTTPS call <span class="where c">container</span></div>
-        <div class="d">curl, fetch, git, axios — every standard HTTP client honors <code>HTTPS_PROXY</code> automatically. The agent doesn't do anything special; it just calls the real URL.</div>
-      </div>
-    </div>
-    <div class="step">
-      <div>
-        <div class="t">Request exits through the gateway proxy <span class="where g">gateway :10255</span></div>
-        <div class="d">The proxy URL's embedded token tells the gateway <em>which agent</em> is calling. Different agent groups have different tokens — and different secret allow-lists.</div>
-      </div>
-    </div>
-    <div class="step">
-      <div>
-        <div class="t">TLS is terminated at the proxy <span class="where g">gateway</span></div>
-        <div class="d">The gateway presents a certificate signed by its own private CA. The container trusts it because the CA cert was mounted in at spawn time. This is a deliberate, local-only man-in-the-middle — it's how the proxy can read and modify the request.</div>
-      </div>
-    </div>
-    <div class="step">
-      <div>
-        <div class="t">Credential lookup: hostname × agent <span class="where g">gateway → vault</span></div>
-        <div class="d">The gateway matches <code>api.stripe.com</code> against the vault's host patterns, then checks this agent's allow-list (<code>selective</code> mode = only explicitly assigned secrets; <code>all</code> = any matching secret). No match → the request goes out untouched, or fails with a <code>connect_url</code> the agent can show the user.</div>
-      </div>
-    </div>
-    <div class="step">
-      <div>
-        <div class="t">Optional: human approval <span class="where h">host → your DMs</span></div>
-        <div class="d">If a vault rule marks the action as sensitive, the gateway holds the request and emits a pending approval. The NanoClaw host long-polls for these and DMs an approver (scoped admin → global admin → owner). The agent just sees a slow request.</div>
-      </div>
-    </div>
-    <div class="step">
-      <div>
-        <div class="t">Auth header injected, request re-encrypted, forwarded <span class="where g">gateway → real API</span></div>
-        <div class="d">The gateway adds <code>Authorization: Bearer sk-live-…</code> (or swaps a placeholder, or runs an OAuth token refresh first) and opens a fresh TLS connection to the real API. The credential exists only on this host-side leg.</div>
-      </div>
-    </div>
-    <div class="step">
-      <div>
-        <div class="t">Response flows back; the secret never crossed the boundary <span class="where c">container</span></div>
-        <div class="d">The agent gets a normal API response. Nothing in its environment, filesystem, logs, or chat transcript ever contained a usable credential.</div>
-      </div>
-    </div>
+  <p class="lede" style="font-size:15px">
+    What happens when the agent runs <code>curl https://api.stripe.com/v1/charges</code> —
+    with no API key anywhere in the container. curl, fetch, git, axios all honor
+    <code>HTTPS_PROXY</code> automatically, so the agent does nothing special.
+  </p>
+  <div class="diagram">
+    <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant A as Agent<br/>(container)
+  participant G as Gateway proxy<br/>:10255 (host)
+  participant V as Vault<br/>(host, encrypted)
+  participant H as Human approver<br/>(DM)
+  participant S as api.stripe.com
+
+  A->>G: CONNECT api.stripe.com (via HTTPS_PROXY)<br/>agent token identifies which agent is calling
+  Note over A,G: TLS terminated at the proxy — container trusts the<br/>gateway's private CA (cert mounted at spawn time)
+  G->>V: lookup: hostname × this agent's allow-list
+  alt credential matched
+    V-->>G: credential (decrypted in gateway memory only)
+  else no match / app not connected
+    V-->>G: none
+    G-->>A: error + connect_url → agent shows it to the user
+  end
+  opt rule marks action as sensitive
+    G->>H: hold request · NanoClaw DMs an approver<br/>(scoped admin → global admin → owner)
+    H-->>G: approve / deny
+  end
+  G->>S: fresh TLS connection + Authorization: Bearer sk-live-…<br/>(OAuth refresh handled here if token expired)
+  S-->>G: 200 response
+  G-->>A: response — the credential never crossed the container boundary
+    </pre>
   </div>
 
   <h2>What lives where</h2>
@@ -365,7 +222,44 @@
     NanoClaw (personal Claude assistant, container-per-agent architecture) + OneCLI Agent Vault (credential gateway).
     Diagram reflects the actual wiring: host fetches <code>/api/container-config</code> per agent and passes
     <code>HTTPS_PROXY</code> + CA cert into <code>docker run</code>; the gateway injects credentials at the proxy boundary.
+    Diagrams rendered with <a href="https://mermaid.js.org" style="color:#8a9bac">Mermaid</a>.
   </footer>
 </div>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      darkMode: true,
+      background: '#1a2129',
+      primaryColor: '#202a35',
+      primaryBorderColor: '#46586c',
+      primaryTextColor: '#d8e1ea',
+      lineColor: '#f0b35c',
+      fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif',
+      fontSize: '14px',
+      noteBkgColor: '#3a2d15',
+      noteBorderColor: '#f0b35c',
+      noteTextColor: '#ffe9c7',
+      actorBkg: '#202a35',
+      actorBorder: '#46586c',
+      actorTextColor: '#d8e1ea',
+      signalColor: '#d8e1ea',
+      signalTextColor: '#d8e1ea',
+      sequenceNumberColor: '#0f1419',
+      activationBkgColor: '#2e3b4a',
+      labelBoxBkgColor: '#202a35',
+      labelBoxBorderColor: '#46586c',
+      labelTextColor: '#d8e1ea',
+      loopTextColor: '#f0b35c',
+      altSectionBkgColor: 'rgba(255,255,255,0.03)',
+      clusterBkg: 'rgba(0,0,0,0.15)'
+    },
+    flowchart: { curve: 'basis', htmlLabels: true },
+    sequence: { mirrorActors: false, messageFontSize: 13, noteFontSize: 12.5, actorFontSize: 14 }
+  });
+</script>
 </body>
 </html>
