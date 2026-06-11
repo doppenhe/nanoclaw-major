@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NanoClaw × OneCLI — How Credential Injection Works</title>
+<style>
+  :root {
+    --bg: #0f1419;
+    --panel: #1a2129;
+    --panel2: #202a35;
+    --border: #2e3b4a;
+    --text: #d8e1ea;
+    --muted: #8a9bac;
+    --host: #4cc38a;       /* green — trusted host */
+    --host-dim: #173527;
+    --container: #6aa6ff;  /* blue — agent container */
+    --container-dim: #15243d;
+    --secret: #ff6b6b;     /* red — secrets */
+    --secret-dim: #3a1d22;
+    --accent: #f0b35c;     /* amber — flow */
+    --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 40px 20px;
+    background: var(--bg); color: var(--text);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; }
+  h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -0.5px; }
+  h1 .sub { color: var(--muted); font-weight: 400; }
+  h2 { font-size: 21px; margin: 56px 0 14px; color: #fff; }
+  p.lede { font-size: 17px; color: var(--muted); max-width: 820px; margin: 10px 0 0; }
+  p.lede strong { color: var(--text); }
+  code {
+    font-family: var(--mono); font-size: 0.85em;
+    background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 4px; padding: 1px 6px; white-space: nowrap;
+  }
+  .key { color: var(--accent); }
+
+  /* ---------- zone diagram ---------- */
+  .zones {
+    display: grid;
+    grid-template-columns: 1fr 56px 1fr;
+    gap: 0; margin-top: 24px;
+    align-items: stretch;
+  }
+  .zone {
+    border-radius: 14px; padding: 20px;
+    border: 1.5px solid;
+  }
+  .zone.host { border-color: var(--host); background: linear-gradient(180deg, var(--host-dim), var(--panel)); }
+  .zone.agent { border-color: var(--container); background: linear-gradient(180deg, var(--container-dim), var(--panel)); }
+  .zone h3 {
+    margin: 0 0 4px; font-size: 13px; letter-spacing: 2px; text-transform: uppercase;
+  }
+  .zone.host h3 { color: var(--host); }
+  .zone.agent h3 { color: var(--container); }
+  .zone .tagline { font-size: 13px; color: var(--muted); margin: 0 0 16px; }
+  .node {
+    background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px; margin-bottom: 12px;
+  }
+  .node:last-child { margin-bottom: 0; }
+  .node .name { font-weight: 600; font-size: 14.5px; display: flex; align-items: center; gap: 8px; }
+  .node .name .port { font-family: var(--mono); font-size: 11px; color: var(--muted); font-weight: 400; }
+  .node ul { margin: 6px 0 0; padding-left: 18px; font-size: 13.5px; color: var(--muted); }
+  .node ul li { margin: 3px 0; }
+  .node ul li code { font-size: 0.95em; }
+  .node.secrets { border-color: #5a2a30; background: linear-gradient(180deg, var(--secret-dim), var(--panel2)); }
+  .node.secrets .name { color: var(--secret); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+  .dot.green { background: var(--host); }
+  .dot.blue { background: var(--container); }
+  .dot.red { background: var(--secret); }
+  .dot.amber { background: var(--accent); }
+
+  /* the boundary strip between zones */
+  .boundary {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    position: relative;
+  }
+  .boundary .line {
+    position: absolute; top: 8px; bottom: 8px; left: 50%; width: 0;
+    border-left: 2px dashed #46586c;
+  }
+  .boundary .label {
+    position: relative; z-index: 1;
+    writing-mode: vertical-rl; transform: rotate(180deg);
+    font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--muted); background: var(--bg); padding: 10px 2px;
+  }
+
+  /* arrows crossing the boundary */
+  .crossings { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .crossing {
+    display: grid; grid-template-columns: 1fr 56px 1fr; align-items: center;
+  }
+  .crossing .what {
+    font-size: 13px; padding: 8px 12px; border-radius: 8px;
+    background: var(--panel); border: 1px solid var(--border);
+  }
+  .crossing .what b { color: var(--accent); font-weight: 600; }
+  .crossing .arr {
+    text-align: center; color: var(--accent); font-size: 20px; font-family: var(--mono);
+  }
+  .crossing .blank { visibility: hidden; }
+
+  /* ---------- request flow ---------- */
+  .flow { counter-reset: step; margin-top: 20px; }
+  .step {
+    display: grid; grid-template-columns: 44px 1fr; gap: 16px;
+    padding: 14px 0; border-bottom: 1px solid var(--border);
+  }
+  .step:last-child { border-bottom: none; }
+  .step::before {
+    counter-increment: step; content: counter(step);
+    width: 32px; height: 32px; border-radius: 50%;
+    background: var(--panel2); border: 1.5px solid var(--accent); color: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 15px; margin-top: 2px;
+  }
+  .step .t { font-weight: 600; font-size: 15px; }
+  .step .t .where { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 600; border-radius: 4px; padding: 2px 7px; margin-left: 8px; vertical-align: 2px;}
+  .where.h { color: var(--host); background: var(--host-dim); }
+  .where.c { color: var(--container); background: var(--container-dim); }
+  .where.g { color: var(--accent); background: #3a2d15; }
+  .step .d { color: var(--muted); font-size: 14px; margin-top: 3px; max-width: 860px; }
+  .step .d code { white-space: normal; }
+
+  /* ---------- where-things-live table ---------- */
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 14.5px; }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); }
+  td.yes { color: var(--host); }
+  td.no { color: var(--secret); }
+  td:first-child { font-weight: 600; }
+
+  /* ---------- callouts ---------- */
+  .callouts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
+  .callout {
+    background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+    border-radius: 10px; padding: 14px 16px;
+  }
+  .callout .t { font-weight: 600; font-size: 14.5px; margin-bottom: 4px; }
+  .callout .d { font-size: 13.5px; color: var(--muted); }
+  footer { margin-top: 60px; font-size: 12.5px; color: #5b6b7c; border-top: 1px solid var(--border); padding-top: 16px; }
+
+  @media (max-width: 760px) {
+    .zones, .crossing { grid-template-columns: 1fr; }
+    .boundary { display: none; }
+    .crossing .arr { transform: rotate(90deg); }
+    .crossing .blank { display: none; }
+    .callouts { grid-template-columns: 1fr; }
+    .zone.agent { margin-top: 14px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>How agents get API access <span class="sub">— without ever holding a credential</span></h1>
+  <p class="lede">
+    NanoClaw runs each AI agent in its own Docker container. Agents need to call real APIs
+    (Gmail, GitHub, Stripe, Anthropic…), but an LLM agent is exactly the kind of thing you
+    <strong>don't</strong> want holding API keys: it can be prompt-injected, it logs its own
+    transcripts, and it executes arbitrary shell commands. The solution: <strong>all secrets stay
+    on the host in an encrypted vault, and a man-in-the-middle proxy injects them into outbound
+    HTTPS requests at the network boundary.</strong> The container only ever sees a proxy address.
+  </p>
+
+  <h2>The two worlds</h2>
+  <div class="zones">
+    <div class="zone host">
+      <h3>Host machine — trusted</h3>
+      <p class="tagline">Secrets live here and never leave.</p>
+      <div class="node secrets">
+        <div class="name"><span class="dot red"></span>OneCLI Vault <span class="port">(encrypted, at rest)</span></div>
+        <ul>
+          <li>API keys &amp; OAuth access + refresh tokens</li>
+          <li><b>Host patterns</b> — which credential belongs to which API hostname (e.g. <code>api.stripe.com</code>)</li>
+          <li><b>Per-agent allow-lists</b> — which agent may use which secret</li>
+          <li>Approval rules for sensitive actions</li>
+        </ul>
+      </div>
+      <div class="node">
+        <div class="name"><span class="dot amber"></span>OneCLI Gateway <span class="port">proxy :10255 · API/UI :10254</span></div>
+        <ul>
+          <li>TLS-intercepting forward proxy with its own private CA</li>
+          <li>Looks up credentials per request, injects auth headers</li>
+          <li>Runs OAuth refresh flows itself — agent never sees tokens</li>
+        </ul>
+      </div>
+      <div class="node">
+        <div class="name"><span class="dot green"></span>NanoClaw host process</div>
+        <ul>
+          <li>Routes chat messages, spawns one container per agent group</li>
+          <li>Registers each agent group with the gateway before spawn</li>
+          <li>Delivers approval requests to a human via DM</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="boundary">
+      <div class="line"></div>
+      <div class="label">container boundary</div>
+    </div>
+
+    <div class="zone agent">
+      <h3>Agent container — untrusted</h3>
+      <p class="tagline">Holds zero real credentials. Ever.</p>
+      <div class="node">
+        <div class="name"><span class="dot blue"></span>Claude agent <span class="port">(Bun runtime, --rm)</span></div>
+        <ul>
+          <li>Makes <b>plain HTTPS calls to the real API URLs</b> — <code>curl https://api.github.com/user/repos</code></li>
+          <li>No auth headers, no keys, no OAuth dance</li>
+          <li>Taught by a skill file: "just call the API; the gateway handles auth"</li>
+        </ul>
+      </div>
+      <div class="node">
+        <div class="name"><span class="dot blue"></span>Environment <span class="port">(set at docker run)</span></div>
+        <ul>
+          <li><code>HTTPS_PROXY=http://x:&lt;agent-token&gt;@host.docker.internal:10255</code></li>
+          <li>The token <b>identifies the agent to the gateway</b> — it is not a service credential and unlocks nothing outside this proxy</li>
+          <li><code>NODE_EXTRA_CA_CERTS</code> / <code>SSL_CERT_FILE</code> → gateway's CA cert, mounted read-only at <code>/tmp/onecli-gateway-ca.pem</code></li>
+          <li>Placeholders only: e.g. <code>CLAUDE_CODE_OAUTH_TOKEN=placeholder</code> — the real one is swapped in by the proxy</li>
+        </ul>
+      </div>
+      <div class="node">
+        <div class="name"><span class="dot blue"></span>Credential stubs <span class="port">(for MCP servers)</span></div>
+        <ul>
+          <li>Some tools insist on a credentials file before starting</li>
+          <li>Stub files contain the literal string <code>"onecli-managed"</code> — never a real value</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="crossings">
+    <div class="crossing">
+      <div class="what"><b>Spawn time →</b> host registers the agent, fetches proxy config from the gateway, passes it as <code>-e</code> env vars + a read-only CA cert mount</div>
+      <div class="arr">⟶</div>
+      <div class="what blank">.</div>
+    </div>
+    <div class="crossing">
+      <div class="what blank">.</div>
+      <div class="arr">⟵</div>
+      <div class="what"><b>Request time →</b> every outbound HTTPS call exits through the proxy, where credentials are injected in-flight</div>
+    </div>
+  </div>
+
+  <h2>Life of a request</h2>
+  <p class="lede" style="font-size:15px">What happens when the agent runs <code>curl https://api.stripe.com/v1/charges</code> — with no API key anywhere in the container:</p>
+  <div class="flow">
+    <div class="step">
+      <div>
+        <div class="t">Agent makes a normal HTTPS call <span class="where c">container</span></div>
+        <div class="d">curl, fetch, git, axios — every standard HTTP client honors <code>HTTPS_PROXY</code> automatically. The agent doesn't do anything special; it just calls the real URL.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div>
+        <div class="t">Request exits through the gateway proxy <span class="where g">gateway :10255</span></div>
+        <div class="d">The proxy URL's embedded token tells the gateway <em>which agent</em> is calling. Different agent groups have different tokens — and different secret allow-lists.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div>
+        <div class="t">TLS is terminated at the proxy <span class="where g">gateway</span></div>
+        <div class="d">The gateway presents a certificate signed by its own private CA. The container trusts it because the CA cert was mounted in at spawn time. This is a deliberate, local-only man-in-the-middle — it's how the proxy can read and modify the request.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div>
+        <div class="t">Credential lookup: hostname × agent <span class="where g">gateway → vault</span></div>
+        <div class="d">The gateway matches <code>api.stripe.com</code> against the vault's host patterns, then checks this agent's allow-list (<code>selective</code> mode = only explicitly assigned secrets; <code>all</code> = any matching secret). No match → the request goes out untouched, or fails with a <code>connect_url</code> the agent can show the user.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div>
+        <div class="t">Optional: human approval <span class="where h">host → your DMs</span></div>
+        <div class="d">If a vault rule marks the action as sensitive, the gateway holds the request and emits a pending approval. The NanoClaw host long-polls for these and DMs an approver (scoped admin → global admin → owner). The agent just sees a slow request.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div>
+        <div class="t">Auth header injected, request re-encrypted, forwarded <span class="where g">gateway → real API</span></div>
+        <div class="d">The gateway adds <code>Authorization: Bearer sk-live-…</code> (or swaps a placeholder, or runs an OAuth token refresh first) and opens a fresh TLS connection to the real API. The credential exists only on this host-side leg.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div>
+        <div class="t">Response flows back; the secret never crossed the boundary <span class="where c">container</span></div>
+        <div class="d">The agent gets a normal API response. Nothing in its environment, filesystem, logs, or chat transcript ever contained a usable credential.</div>
+      </div>
+    </div>
+  </div>
+
+  <h2>What lives where</h2>
+  <table>
+    <tr><th>Thing</th><th>Host (vault / gateway)</th><th>Inside container</th></tr>
+    <tr>
+      <td>API keys, OAuth access &amp; refresh tokens</td>
+      <td class="yes">✓ encrypted vault</td>
+      <td class="no">✗ never</td>
+    </tr>
+    <tr>
+      <td>Per-agent proxy token</td>
+      <td class="yes">✓ issued by gateway</td>
+      <td class="yes">✓ in <code>HTTPS_PROXY</code> — identifies the agent only; useless outside this proxy</td>
+    </tr>
+    <tr>
+      <td>Gateway CA certificate (public half)</td>
+      <td class="yes">✓ CA private key stays here</td>
+      <td class="yes">✓ cert only, mounted read-only</td>
+    </tr>
+    <tr>
+      <td>Which agent may use which secret</td>
+      <td class="yes">✓ allow-lists in vault</td>
+      <td class="no">✗ not even visible</td>
+    </tr>
+    <tr>
+      <td>Credential files for picky MCP servers</td>
+      <td class="yes">✓ real values in vault</td>
+      <td class="no">✗ stub files containing <code>"onecli-managed"</code></td>
+    </tr>
+    <tr>
+      <td>Approval decisions</td>
+      <td class="yes">✓ human, via DM</td>
+      <td class="no">✗ agent can't approve its own requests</td>
+    </tr>
+  </table>
+
+  <h2>Design details worth stealing</h2>
+  <div class="callouts">
+    <div class="callout">
+      <div class="t">Fails closed</div>
+      <div class="d">If the gateway is unreachable at spawn time, NanoClaw refuses to start the container at all — there is no "run without credential wiring" fallback that would tempt someone to paste keys into env vars.</div>
+    </div>
+    <div class="callout">
+      <div class="t">Per-agent identity, not per-machine</div>
+      <div class="d">Every agent group is registered as its own gateway identity with its own token and allow-list. A compromised "fun side-project" agent can't use the secrets assigned to your "production ops" agent.</div>
+    </div>
+    <div class="callout">
+      <div class="t">Revocation is instant and central</div>
+      <div class="d">The gateway resolves secrets per request, not per session. Rotate or revoke a key in the vault and the very next API call uses (or loses) it — no container restarts, no env-var redeploys.</div>
+    </div>
+    <div class="callout">
+      <div class="t">Prompt injection can't exfiltrate what isn't there</div>
+      <div class="d">Even if a malicious message tricks the agent into running <code>env</code> or <code>cat ~/.config/*</code> and posting the output, there is nothing to leak — only a proxy address and placeholder strings.</div>
+    </div>
+    <div class="callout">
+      <div class="t">OAuth complexity stays out of the agent</div>
+      <div class="d">Token refresh, consent flows, and expiry are the gateway's job. When an app isn't connected yet, the error includes a <code>connect_url</code> the agent hands to the human — the agent never participates in the auth flow.</div>
+    </div>
+    <div class="callout">
+      <div class="t">Pragmatic escape hatches exist</div>
+      <div class="d">Some endpoints don't fit the proxy model (e.g. GitHub's git-over-HTTPS auth). Those are bypassed explicitly with <code>NO_PROXY</code> plus a narrowly scoped token — a visible, deliberate exception rather than a hidden workaround.</div>
+    </div>
+  </div>
+
+  <footer>
+    NanoClaw (personal Claude assistant, container-per-agent architecture) + OneCLI Agent Vault (credential gateway).
+    Diagram reflects the actual wiring: host fetches <code>/api/container-config</code> per agent and passes
+    <code>HTTPS_PROXY</code> + CA cert into <code>docker run</code>; the gateway injects credentials at the proxy boundary.
+  </footer>
+</div>
+</body>
+</html>
