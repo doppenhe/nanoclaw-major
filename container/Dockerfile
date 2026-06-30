@@ -16,12 +16,11 @@ FROM node:22-slim
 # CJK fonts add ~200MB. Opt in only if you render Chinese/Japanese/Korean text.
 ARG INSTALL_CJK_FONTS=false
 
-# Pin CLI versions for reproducibility. Bump deliberately — unpinned installs
-# mean every rebuild silently picks up the latest and can break in lockstep
-# across all users.
-ARG CLAUDE_CODE_VERSION=2.1.154
-ARG AGENT_BROWSER_VERSION=latest
-ARG VERCEL_VERSION=52.2.1
+# Pin versions for reproducibility. Bump deliberately — unpinned installs mean
+# every rebuild silently picks up the latest and can break in lockstep across
+# all users. The global Node CLIs (claude-code, agent-browser, vercel) are
+# pinned in cli-tools.json so a skill can add one with a json-merge; Bun (the
+# runtime) is pinned here because it installs from a different source.
 ARG BUN_VERSION=1.3.12
 
 # ---- System dependencies -----------------------------------------------------
@@ -119,13 +118,15 @@ ENV PATH="$PNPM_HOME:$PATH"
 ARG PNPM_VERSION=10.33.0
 RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
 
-RUN echo "only-built-dependencies[]=agent-browser" > /root/.npmrc && \
-    echo "only-built-dependencies[]=@anthropic-ai/claude-code" >> /root/.npmrc && \
-    pnpm install -g "vercel@${VERCEL_VERSION}"
-
-RUN pnpm install -g "agent-browser@${AGENT_BROWSER_VERSION}"
-
-RUN pnpm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+# Global Node CLIs the agent invokes at runtime live in cli-tools.json so a
+# skill can add one with a json-merge instead of editing this Dockerfile.
+# install-cli-tools.sh installs each via pnpm (pinned), writing the per-tool
+# only-built-dependencies opt-ins it reads from the manifest.
+# NOTE: --mount=type=cache intentionally omitted — this fork disables buildkit
+# cache mounts for deterministic rebuilds (commit 434ca7a; see CLAUDE.md
+# "Container Build Cache"). Stale cache volumes have masked dep upgrades here.
+COPY cli-tools.json install-cli-tools.sh /tmp/
+RUN sh /tmp/install-cli-tools.sh /tmp/cli-tools.json
 
 # ---- ncl CLI wrapper ----------------------------------------------------------
 # Actual script lives in the mounted source at /app/src/cli/ncl.ts.
