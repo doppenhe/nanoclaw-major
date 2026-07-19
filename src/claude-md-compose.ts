@@ -20,6 +20,7 @@ import { GROUPS_DIR } from './config.js';
 import type { McpServerConfig } from './container-config.js';
 import { getContainerConfig } from './db/container-configs.js';
 import { readGroupPersona } from './group-persona.js';
+import { log } from './log.js';
 import type { AgentGroup } from './types.js';
 
 // Fragment holding a template's persona prepend. Imported FIRST (before the
