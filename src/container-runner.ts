@@ -581,7 +581,6 @@ export async function buildMounts(
     });
   }
 
-
   // Shared CLAUDE.md — a release surface, read-only.
   const sharedClaudeMd = path.join(projectRoot, 'container', 'CLAUDE.md');
   if (defaultSurfaces && fs.existsSync(sharedClaudeMd)) {

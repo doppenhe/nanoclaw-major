@@ -77,9 +77,10 @@ export function resolveGithubTokenForMounts(mounts: VolumeMount[]): string | nul
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'pipe'],
     }).trim();
-  } catch {
+  } catch (err) {
     throw new Error(
       'Container mounts a doppenhe/* git repo but `gh auth token -u doppenhe` failed. Run: gh auth login --hostname github.com --user doppenhe',
+      { cause: err },
     );
   }
 }
