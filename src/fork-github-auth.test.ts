@@ -131,9 +131,14 @@ describe('composeGithubTokenMount', () => {
     // reached, so this also proves the common session does no subprocess work.
     const repo = path.join(tempDir, 'other');
     fs.mkdirSync(path.join(repo, '.git'), { recursive: true });
-    fs.writeFileSync(path.join(repo, '.git', 'config'), '[remote "origin"]\n  url = git@github.com:someoneelse/x.git\n');
+    fs.writeFileSync(
+      path.join(repo, '.git', 'config'),
+      '[remote "origin"]\n  url = git@github.com:someoneelse/x.git\n',
+    );
 
-    expect(composeGithubTokenMount([{ hostPath: repo, containerPath: '/workspace/agent', readonly: false }], 'g1', 's1')).toBeNull();
+    expect(
+      composeGithubTokenMount([{ hostPath: repo, containerPath: '/workspace/agent', readonly: false }], 'g1', 's1'),
+    ).toBeNull();
   });
 
   it('ignores a doppenhe checkout mounted read-only — nothing can be pushed from it', async () => {
@@ -142,6 +147,8 @@ describe('composeGithubTokenMount', () => {
     fs.mkdirSync(path.join(repo, '.git'), { recursive: true });
     fs.writeFileSync(path.join(repo, '.git', 'config'), '[remote "origin"]\n  url = git@github.com:doppenhe/x.git\n');
 
-    expect(composeGithubTokenMount([{ hostPath: repo, containerPath: '/workspace/global', readonly: true }], 'g1', 's1')).toBeNull();
+    expect(
+      composeGithubTokenMount([{ hostPath: repo, containerPath: '/workspace/global', readonly: true }], 'g1', 's1'),
+    ).toBeNull();
   });
 });
