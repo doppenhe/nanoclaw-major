@@ -53,10 +53,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
        fi \
     && rm -rf /var/lib/apt/lists/*
 
-# Git auth for github.com: credential helper reads $GH_TOKEN injected by host
-# at container spawn for doppenhe/* repo mounts (see resolveGithubTokenForMounts
-# in src/container-runner.ts). Helper only responds to `get` — never persists.
-RUN git config --system 'credential.https://github.com.helper' '!f() { [ "$1" = get ] && printf "username=x-access-token\npassword=%s\n" "$GH_TOKEN"; }; f'
+# Git auth for github.com: credential helper reads the token from the file at
+# $GH_TOKEN_FILE, a read-only mount the host composes at spawn for doppenhe/*
+# repo mounts (see src/fork-github-auth.ts). Helper only responds to `get` —
+# never persists.
+#
+# By-reference, not by-env: the session spec's admission rules (validateSpec in
+# src/drivers/types.ts) refuse a credential VALUE on every env lane, so the old
+# `$GH_TOKEN` shape would abort the spawn outright. An absolute path is exempt.
+#
+# Falls back to $GH_TOKEN when GH_TOKEN_FILE is unset, so a container run by
+# hand with a token in its environment still authenticates.
+RUN git config --system 'credential.https://github.com.helper' '!f() { [ "$1" = get ] || return 0; if [ -n "$GH_TOKEN_FILE" ] && [ -r "$GH_TOKEN_FILE" ]; then printf "username=x-access-token\npassword=%s\n" "$(cat "$GH_TOKEN_FILE")"; elif [ -n "$GH_TOKEN" ]; then printf "username=x-access-token\npassword=%s\n" "$GH_TOKEN"; fi; }; f'
 
 # Chromium path for agent-browser / Playwright consumers
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
@@ -115,8 +123,15 @@ ENV PATH="$PNPM_HOME:$PATH"
 # silently skips claude-code's native-binary postinstall and agent-browser's
 # bin chmod — the agent then crashes at runtime with "native binary not
 # installed". Keep this in lockstep with package.json's `packageManager`.
-ARG PNPM_VERSION=10.33.0
+ARG PNPM_VERSION=10.34.5
 RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+
+# The npm bundled with node:22-slim (10.9.8) vendors tar <7.5.19, which
+# carries a fixable critical (GHSA-23hp-3jrh-7fpw) that the publish gate
+# refuses to ship. Patch-level bump only. Drop this once the base image
+# ships npm >= 10.9.9.
+ARG NPM_VERSION=10.9.9
+RUN npm install -g npm@${NPM_VERSION}
 
 # Global Node CLIs the agent invokes at runtime live in cli-tools.json so a
 # skill can add one with a json-merge instead of editing this Dockerfile.
