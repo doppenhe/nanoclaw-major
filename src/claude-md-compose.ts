@@ -7,7 +7,7 @@
  *   - optional per-skill fragments (skills that ship `instructions.md`)
  *   - optional per-MCP-server fragments (inline `instructions` field in
  *     `container.json`)
- *   - per-group agent memory (`CLAUDE.local.md`, auto-loaded by Claude Code)
+ *   - optional provider-neutral standing instructions
  *
  * Runs on every spawn from `container-runner.buildMounts()`. Deterministic —
  * same inputs produce the same CLAUDE.md, and stale fragments are pruned.
@@ -37,14 +37,14 @@ const SHARED_MCP_TOOLS_CONTAINER_BASE = '/app/src/mcp-tools';
 // Resolved at call time (process.cwd() = project root) so tests can swap cwd.
 const MCP_TOOLS_HOST_SUBPATH = path.join('container', 'agent-runner', 'src', 'mcp-tools');
 
-const COMPOSED_HEADER = '<!-- Composed at spawn — do not edit. Edit CLAUDE.local.md for per-group content. -->';
+const COMPOSED_HEADER =
+  '<!-- Composed at spawn - do not edit. Standing instructions: instructions.prepend.md. Memory: memory/. -->';
 
 /**
  * Regenerate `groups/<folder>/CLAUDE.md` from the shared base, enabled skill
- * fragments, and MCP server fragments declared in `container.json`. Creates
- * an empty `CLAUDE.local.md` if missing.
+ * fragments, and MCP server fragments declared in `container.json`.
  */
-export function composeGroupClaudeMd(group: AgentGroup): void {
+export async function composeGroupClaudeMd(group: AgentGroup): Promise<void> {
   const groupDir = path.resolve(GROUPS_DIR, group.folder);
   if (!fs.existsSync(groupDir)) {
     fs.mkdirSync(groupDir, { recursive: true });
@@ -59,7 +59,7 @@ export function composeGroupClaudeMd(group: AgentGroup): void {
   }
 
   // Desired fragment set.
-  const configRow = getContainerConfig(group.id);
+  const configRow = await getContainerConfig(group.id);
   const mcpServers: Record<string, McpServerConfig> = configRow
     ? (JSON.parse(configRow.mcp_servers) as Record<string, McpServerConfig>)
     : {};
@@ -80,10 +80,12 @@ export function composeGroupClaudeMd(group: AgentGroup): void {
     }
   }
 
-  // Built-in module fragments — every MCP tool source file that ships a
+  // Built-in module fragments — every MCP/CLI module that ships a
   // sibling `<name>.instructions.md`. These describe how the agent should
-  // use that module's MCP tools (schedule_task, install_packages, etc.).
-  // Skip cli.instructions.md when cli_scope is disabled.
+  // use that module's tools (`ncl tasks`, install_packages, etc.).
+  // Skip ncl-dependent instructions when cli_scope is disabled. `scheduling`
+  // teaches `ncl tasks`, so it is just as dead as `cli` itself when the agent
+  // has no ncl — dispatch rejects every cli_request and ncl is excluded.
   const cliDisabled = configRow?.cli_scope === 'disabled';
   const mcpToolsHostDir = path.join(process.cwd(), MCP_TOOLS_HOST_SUBPATH);
   if (fs.existsSync(mcpToolsHostDir)) {
@@ -91,7 +93,7 @@ export function composeGroupClaudeMd(group: AgentGroup): void {
       const match = entry.match(/^(.+)\.instructions\.md$/);
       if (!match) continue;
       const moduleName = match[1];
-      if (moduleName === 'cli' && cliDisabled) continue;
+      if ((moduleName === 'cli' || moduleName === 'scheduling') && cliDisabled) continue;
       desired.set(`module-${moduleName}.md`, {
         type: 'symlink',
         content: `${SHARED_MCP_TOOLS_CONTAINER_BASE}/${entry}`,
