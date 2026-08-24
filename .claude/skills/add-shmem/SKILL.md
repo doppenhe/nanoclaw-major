@@ -7,6 +7,8 @@ description: Add shmem (Second Moment AI) as an MCP server for long-term cross-s
 
 Installs `shmem-mcp` in the agent container image and wires it into one or more agent groups as a stdio MCP server. Memory lives on the host at `~/.shmem/db` (unified store, project tag per agent group) and is bind-mounted into the container at `/workspace/extra/shmem-db`.
 
+> **⚠️ This install already runs the HTTP shmem server — not the stdio binary this skill describes.** The live Major groups wire shmem as an **HTTP MCP server** (`http://172.17.0.1:8705/mcp`, Bearer auth) backed by a shared systemd server, project tag `major`. See `docs/LOCAL.md` and the "shared shmem HTTP server" reference. Phases 3–5 and 7 below describe the original **stdio `shmem-mcp` + bind-mount** approach; they're kept for reference but do **not** match this install. For the HTTP setup, the MCP entry is `{"type":"http","url":"…","headers":{"Authorization":"Bearer …"}}` in `container_configs.mcp_servers` and there is no image layer or mount to add. **Phase 6 (recall enforcement) applies identically to both architectures — it's the important part.**
+
 > **Gotcha:** NanoClaw's mount-security validator auto-prefixes every additional mount with `/workspace/extra/<basename>` and **rejects any `containerPath` that starts with `/`**. So the `additional_mounts` entry must use `containerPath: "shmem-db"` (relative), and the matching `SHMEM_TREE_PATH` env in the MCP config must be `/workspace/extra/shmem-db` (where the validator landed it). A leading-slash containerPath produces a silent rejection logged at WARN level — the container starts without the mount, shmem-mcp creates an ephemeral DB inside the container's writable layer, and you lose every fact on container restart.
 
 ## What the agent gets
@@ -157,9 +159,31 @@ Verify:
 
 ## Phase 6: Write discipline in CLAUDE.local.md
 
-**Critical step.** Without explicit instructions, the agent will write the same fact to multiple stores and trust none. Add a section to each group's `CLAUDE.local.md` that maps each storage surface to its purpose.
+**Critical step.** Without explicit instructions, the agent never reliably *checks* memory and writes the same fact to multiple stores trusting none.
 
-Template — adapt to the surfaces your group actually has:
+### Enforce recall via the MCP `instructions` field (preferred)
+
+Hand-writing recall discipline into each `CLAUDE.local.md` drifts between groups and is Claude-only. Instead attach the canonical recall+capture text to the shmem MCP entry itself — `composeGroupClaudeMd()` auto-emits it as an `mcp-shmem.md` fragment into the composed `CLAUDE.md` on every spawn (`src/claude-md-compose.ts:100-107`). It's DB-driven, identical across groups, and travels with the wiring; takes effect on the next spawn, no forced restart.
+
+The `ncl` CLI can't set this on an HTTP entry (`config add-mcp-server` only writes stdio `command`/`args`/`env` and would clobber `type`/`url`/`headers`). Write the DB via the config API instead — read `mcp_servers`, add `instructions` to the `shmem` entry, `updateContainerConfigJson(id, 'mcp_servers', servers)` (needs `initDb('data/v2.db')` first). Canonical text to set:
+
+```markdown
+## Long-term memory (shmem)
+
+You have shared cross-session memory via the `shmem` MCP tools. Use it on every workflow — do not rely on this conversation alone:
+
+- **Recall first.** Before brainstorming content, planning a thread, or answering anything about past work, decisions, or "have we already done / said X" — call `recall_memory` with tight keywords (or `ask_memory` for open-ended history). Always check for repetition before proposing a new angle.
+- **Capture after.** When something durable surfaces — a decision, a correction from the user, a lesson, a stated preference — call `add_memory` with one concise fact. Skip transient chatter.
+- Treat recalled facts as *prior context, not ground truth*: verify anything time-sensitive against the current state.
+```
+
+### Provider portability (Codex / Gemini / OpenCode)
+
+The `mcp-shmem.md` fragment path is **Claude-only** — providers that set `providesAgentSurfaces` skip CLAUDE.md composition entirely. Each provider reads its own base file with **no shared source**: Claude→`CLAUDE.md`, Codex/OpenCode→`AGENTS.md` (`container/AGENTS.md`), Gemini→`GEMINI.md`. When a group runs — or switches to — a non-Claude provider, **mirror the same canonical recall text into that provider's base file**, or recall discipline silently vanishes on the switch. There is no single file that reaches all providers today.
+
+### Memory-surface map (still worth adding per group)
+
+Beyond the enforced recall text above, map each storage surface to its purpose so the agent doesn't double-write. Add to each group's `CLAUDE.local.md` — adapt to the surfaces your group actually has:
 
 ```markdown
 ## Memory surfaces (write discipline)

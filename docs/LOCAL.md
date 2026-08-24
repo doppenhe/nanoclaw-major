@@ -94,6 +94,12 @@ OneCLI's proxy special-cases `github.com` and rejects vault PATs. The PAT flows 
 
 ### shmem-mcp installed in container image (cross-session memory for Major)
 
+> **⚠️ Superseded wiring (this section describes the original stdio+mount setup).** As of the ~2026-06-23 cutover, the Major groups no longer use the stdio `shmem-mcp` binary or the `~/.shmem/db` bind-mount. They connect to the **shared HTTP shmem server** (systemd, `http://172.17.0.1:8705/mcp`, Bearer auth, project `major`) — `mcp_servers.shmem = { type: "http", url, headers }`, `additional_mounts: []`. The Dockerfile layer, mount-allowlist entry, and `SHMEM_QA_PROVIDER=mock` notes below no longer apply to the live containers (synthesis happens server-side now). Kept for historical reference and single-host fallback.
+
+**Recall enforcement (added 2026-06-30):**
+- **Container agents** — the `shmem` MCP entry for both Major groups now carries an `instructions` field (canonical recall+capture text). `composeGroupClaudeMd()` auto-emits it as an `mcp-shmem.md` fragment into `CLAUDE.md` on every spawn (`src/claude-md-compose.ts:100-107`), so recall discipline is DB-driven and consistent instead of hand-copied into `CLAUDE.local.md`. Set via `updateContainerConfigJson` (the `ncl` CLI can't set it on an HTTP entry). Takes effect on next spawn. **Provider caveat:** the fragment is Claude-only — a switch to Codex/Gemini/OpenCode needs the same text mirrored into `container/AGENTS.md` / `GEMINI.md`.
+- **Claude Code (diego's host CLI)** — global `SessionStart` hook `~/.claude/hooks/shmem-recall.sh` injects a `shmem ask` recall digest at every cold session start (skips resume/compact, non-fatal). Complements the existing capture hooks in `~/.claude/settings.json`. diego's personal shmem QA/classifier now run on OpenAI — see [[reference_shmem_local_cli_config]].
+
 | What | Where |
 |---|---|
 | `container/Dockerfile` | New layer between Playwright env and Bun runtime. Downloads `shmem-mcp` v0.1.35 from `github.com/second-moment-ai/homebrew-tap/releases`, SHA-pinned, installs to `/usr/local/bin/`. |
@@ -160,6 +166,10 @@ These were carried over from v1 by `migrate-v2.sh` and committed locally on top 
 - `data/v2.db` — central DB (users, agent_groups, messaging_groups, sessions, scheduled tasks)
 - `data/v2-sessions/<agent-group>/<session>/` — per-session DBs and Claude memory
 - `.env` — credentials (managed by OneCLI gateway)
+
+## Design docs (local, not upstream)
+
+- [docs/design/major-cee-bridge.md](design/major-cee-bridge.md) — autonomous Major↔Cee (Hermes) interaction mirrored into the *DMO Command and Conquer* Telegram room. Status: design/not built. Core constraint: two Bot-API bots are deaf to each other in-room, so the conversation must run over a backchannel (Hermes `api_server` / MCP), with the room as display only.
 
 ## Remotes
 
