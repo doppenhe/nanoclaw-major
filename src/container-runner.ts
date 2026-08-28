@@ -36,7 +36,7 @@ import type { SupervisedHandle, SupervisedSnapshot } from './drivers/session-eve
 import { GROUP_FOLDER_LABEL, labelValueLegal, specInvalid } from './drivers/types.js';
 import type { ContainerSpec, MountSpec, SessionFailure, SessionSpec } from './drivers/types.js';
 // FORK-LOCAL — GitHub push auth (see src/fork-github-auth.ts for the rationale).
-import { cleanupGithubTokenFile, composeGithubTokenMount, githubAuthEnv } from './fork-github-auth.js';
+import { cleanupGithubTokenFile, composeGithubTokenMount, forkNoProxyEnv, githubAuthEnv } from './fork-github-auth.js';
 import { getGatewayProvider, type GatewayContribution } from './gateway-providers/index.js';
 import { initGroupFilesystem } from './group-init.js';
 import { getAgentMailbox } from './mailbox/index.js';
@@ -704,9 +704,10 @@ export function composeSessionSpec(input: ComposeSessionSpecInput): SessionSpec 
   const env: Record<string, string> = {
     TZ: containerConfig.timezone ?? TIMEZONE,
     ...mailboxEnvironment,
-    // FORK-LOCAL — GH_TOKEN_FILE + NO_PROXY, derived from the composed mounts
-    // so the pointer and the file it points at cannot disagree. Empty unless a
-    // token mount was composed. See src/fork-github-auth.ts.
+    // FORK-LOCAL — NO_PROXY for every session (github + host.docker.internal),
+    // then GH_TOKEN_FILE derived from the composed mounts so the pointer and
+    // the file it points at cannot disagree. See src/fork-github-auth.ts.
+    ...forkNoProxyEnv(),
     ...githubAuthEnv(mounts),
   };
   // The contributed lane (ContainerSpec.contributedEnv): registry-sourced env,

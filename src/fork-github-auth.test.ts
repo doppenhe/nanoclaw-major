@@ -16,7 +16,7 @@ import path from 'path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { GH_TOKEN_CONTAINER_PATH, githubAuthEnv } from './fork-github-auth.js';
+import { GH_TOKEN_CONTAINER_PATH, forkNoProxyEnv, githubAuthEnv } from './fork-github-auth.js';
 import { FIXTURE_POLICY, fixtureSpec } from './drivers/spec-fixture.js';
 import { isSecretShaped, validateSpec, type MountSpec, type SessionSpec } from './drivers/types.js';
 
@@ -106,6 +106,20 @@ describe('githubAuthEnv', () => {
     // OneCLI special-cases github.com and rejects raw PATs; git has to skip it.
     expect(env.NO_PROXY).toContain('github.com');
     expect(env.no_proxy).toBe(env.NO_PROXY);
+  });
+
+  it('forkNoProxyEnv bypasses the gateway for github and the docker-bridge host', () => {
+    const env = forkNoProxyEnv();
+    // github: OneCLI rejects raw PATs. host.docker.internal: the gateway cannot
+    // resolve it and a bridge-IP vault secret would clobber Authorization
+    // (the 2026-08-27 shmem 401).
+    for (const host of ['github.com', 'api.github.com', 'host.docker.internal']) {
+      expect(env.NO_PROXY.split(',')).toContain(host);
+    }
+    expect(env.no_proxy).toBe(env.NO_PROXY);
+    // The always-on lane and the token-mount lane must agree, or the narrower
+    // one would win the spread and silently re-route shmem through the proxy.
+    expect(githubAuthEnv(mounted).NO_PROXY).toBe(env.NO_PROXY);
   });
 
   it('emits no credential-valued entry — every value survives isSecretShaped', () => {

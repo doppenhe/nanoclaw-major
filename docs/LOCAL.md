@@ -116,6 +116,24 @@ OneCLI's proxy special-cases `github.com` and rejects vault PATs. The PAT flows 
 
 **Upgrade path:** when bumping `SHMEM_VERSION` in the Dockerfile, update the `SHMEM_SHA256` arg too. SHA values for each release live in the brew formula at `/home/linuxbrew/.linuxbrew/Homebrew/Library/Taps/second-moment-ai/homebrew-tap/shmem.rb` (under the `linux_amd64` block).
 
+### shmem over HTTP: container wiring + health check (2026-08-27)
+
+**What broke (found 2026-08-27):** the Major agents had silently lost memory. Two independent causes:
+1. Upstream `ae81f976` (2026-08-11) made `src/container-config.ts` reject plain-HTTP MCP URLs unless the host is `localhost` / `127.0.0.1` / `host.docker.internal`. Our `http://172.17.0.1:8705/mcp` entry was **dropped at spawn** (`Dropping invalid stored MCP server` in `logs/nanoclaw.error.log`) — the container got no shmem tools at all.
+2. Even with a valid URL, container traffic rides the OneCLI proxy (`HTTP_PROXY=host.docker.internal:10255`). The gateway cannot resolve `host.docker.internal` itself, and the vault secret `CBC_GWS_BRIDGE_TOKEN` (hostPattern `172.17.0.1`, path `/*`, header `Authorization`) overwrote the shmem bearer on any bridge-IP request → `401 invalid token`.
+
+**Fix (fork-local):**
+| What | Where |
+|---|---|
+| `container_configs.mcp_servers.shmem.url` for both Major groups → `http://host.docker.internal:8705/mcp` (instructions field untouched) | `data/v2.db` (SQL `replace(...)`) |
+| `NO_PROXY=github.com,api.github.com,host.docker.internal` emitted for **every** session, not only when a GitHub token mount exists | `src/fork-github-auth.ts` (`FORK_NO_PROXY`, `forkNoProxyEnv()`), spread first in `composeSessionSpec` (`src/container-runner.ts`); pinned by `src/fork-github-auth.test.ts` |
+
+Verified from inside fresh containers with curl, Node (`NODE_USE_ENV_PROXY` / undici `EnvHttpProxyAgent` honours `NO_PROXY`) and Bun `fetch` — all 200, zero `:8705` forwards in `docker logs onecli`. The agent confirmed `recall_memory` itself after an `ncl groups restart --message` respawn.
+
+**Health check + alerting:** `scripts/fork-shmem-healthcheck.sh` runs every 15 min from the systemd user timer `nanoclaw-shmem-check.timer` (`~/.config/systemd/user/nanoclaw-shmem-check.{service,timer}`). Checks: `nanoclaw-shmem.service` active → server `initialize` + `tools/call recall_memory` (from `~/.config/nanoclaw/shmem-server.env` key) → every group's DB shmem URL is `host.docker.internal` and, for groups with a live container, the materialized `groups/<folder>/container.json` still carries the entry → each running `ncl-*` container reaches the server through its own env with `host.docker.internal` in `NO_PROXY`. Alerts Diego on Telegram (`TELEGRAM_BOT_TOKEN` from `.env`, chat `5214488088`) on ok→fail, re-nags every 6 h while down, and sends a recovery note on fail→ok. State: `data/shmem-healthcheck.state.json`; log: `logs/shmem-healthcheck.log`; `journalctl --user -u nanoclaw-shmem-check`. Manual: `scripts/fork-shmem-healthcheck.sh -v [--notify-ok]`.
+
+**Upstream-merge tripwires:** if a merge touches `sanitizeStoredMcpServers` / `parseMcpServerConfig` (allowed plain-HTTP hosts) or `composeSessionSpec` env composition, run the health check right after the restart — it is the only thing that notices a dropped MCP entry.
+
 ### `groups/global/` preserved when it's a git checkout
 
 | What | Where |

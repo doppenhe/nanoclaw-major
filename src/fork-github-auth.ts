@@ -135,15 +135,33 @@ export function composeGithubTokenMount(
  * which `isSecretShaped` exempts, and the `_FILE` suffix keeps it clear of the
  * `_TOKEN` name check for a reader who has not read that function.
  */
+/**
+ * FORK-LOCAL — hosts container traffic must reach WITHOUT the OneCLI proxy.
+ *
+ * - github.com / api.github.com: the gateway special-cases GitHub and rejects
+ *   raw PATs, so git traffic uses the credential helper directly.
+ * - host.docker.internal: host-side services on the docker bridge (the shared
+ *   shmem MCP server on :8705). Two reasons it cannot go through the gateway:
+ *   the gateway cannot resolve `host.docker.internal` from inside its own
+ *   container, and a vault secret whose host pattern is the bridge IP
+ *   (`172.17.0.1`) would overwrite the request's own Authorization header —
+ *   which is exactly what broke shmem on 2026-08-27 (401 "invalid token").
+ *   The gateway itself is addressed as host.docker.internal:10255, but the
+ *   proxy address is never subject to NO_PROXY, so this does not disable it.
+ */
+export const FORK_NO_PROXY = 'github.com,api.github.com,host.docker.internal';
+
+/** Always-on env: emitted for every session, token mount or not. */
+export function forkNoProxyEnv(): Record<string, string> {
+  return { NO_PROXY: FORK_NO_PROXY, no_proxy: FORK_NO_PROXY };
+}
+
 export function githubAuthEnv(mounts: VolumeMount[]): Record<string, string> {
   const mounted = mounts.some((m) => m.containerPath === GH_TOKEN_CONTAINER_PATH);
   if (!mounted) return {};
   return {
     GH_TOKEN_FILE: GH_TOKEN_CONTAINER_PATH,
-    // The OneCLI gateway special-cases github.com and rejects raw PATs, so git
-    // traffic has to skip the proxy entirely and use the credential helper.
-    NO_PROXY: 'github.com,api.github.com',
-    no_proxy: 'github.com,api.github.com',
+    ...forkNoProxyEnv(),
   };
 }
 
