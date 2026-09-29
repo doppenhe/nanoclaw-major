@@ -7,8 +7,45 @@ The v1 ledger (formerly at this path on the v1 install) covered the WhatsApp/Tel
 ## TL;DR — staying updateable
 
 1. Run `/update-nanoclaw` regularly. Keep deltas small.
-2. **Do not** run `/update-skills`. Our skills are committed in main; upstream `skill/*` branches are stale.
-3. Watch the divergence hotspots below — those are the lines that will conflict.
+2. **Do** refresh channel/provider source from the registry branches on every
+   upgrade — `/update-skills`, or the equivalent checkout from
+   `upstream/channels`. See the correction below before trusting older habits.
+3. Our own skills in `.claude/skills/` (`add-shmem`, `add-clidash`, the local
+   operational ones) are authored here and committed in main. Nothing upstream
+   overwrites them, and `/update-skills` does not touch them.
+4. Watch the divergence hotspots below — those are the lines that will conflict.
+
+Related: [weekly-upgrade-job.md](weekly-upgrade-job.md) is the scheduled
+upgrade task's prompt and the reasoning behind its shape;
+[UPGRADE-2026-08-23.md](UPGRADE-2026-08-23.md) is the host-side runbook for
+landing a big upgrade by hand.
+
+### Correction (2026-08-23): the `/update-skills` ban was wrong
+
+This file used to say *"Do not run `/update-skills`. Our skills are committed in
+main; upstream `skill/*` branches are stale."* The premise was right and the
+conclusion did not follow, and it cost us an outage.
+
+Two different sets of branches were being conflated:
+
+| Branch set | Status | What reads it |
+|---|---|---|
+| `skill/compact`, `skill/apple-container`, … | **Frozen legacy.** Upstream's own [BRANCH-FORK-MAINTENANCE.md](BRANCH-FORK-MAINTENANCE.md) says don't forward-merge them. | nothing, any more |
+| `channels`, `providers` | **Live registry branches**, maintained with main | `/update-skills`, `/add-<channel>` |
+
+`/update-skills` reads the second row. Banning it on evidence about the first
+row left `src/channels/telegram.ts` pinned at the copy vendored in May
+(f940c527). On 2026-08-19 upstream made central DB access async; our pinned
+adapter still called those functions synchronously, and the 2026-08-23 weekly
+upgrade failed to compile. The fix was a one-command refresh from
+`upstream/channels`, which also brought a formatting bug fix we had been
+carrying (see the Telegram entry below).
+
+The durable rule: **adapter source under `src/channels/` and `src/providers/`
+tracks the registry branches and must be refreshed whenever upstream changes an
+API it calls. Skills we authored under `.claude/skills/` are ours and are never
+refreshed from upstream.** Both statements are true at once; the old rule
+collapsed them into one.
 
 ## Divergence hotspots (v2)
 
@@ -22,19 +59,89 @@ The v1 ledger (formerly at this path on the v1 install) covered the WhatsApp/Tel
 
 ### GitHub credential injection for `doppenhe/*` mounts
 
+**Reworked 2026-08-23 from env-var to by-reference.** The old shape (value-less
+`-e GH_TOKEN`, value inherited from the spawn process env) is now refused by
+upstream admission — see "How it broke and why" below.
+
 | What | Where |
 |---|---|
-| `container/Dockerfile` — system git credential helper | line ~60, after `git` is installed via apt. Helper reads `$GH_TOKEN` env at request time, never persists. |
-| `src/container-runner.ts` — `resolveGithubTokenForMounts(mounts)` | exported function. Scans writable mounts for `.git/config` matching `doppenhe/*`; if any, calls `gh auth token -u doppenhe`. Throws loudly if `gh auth` fails. |
-| `src/container-runner.ts` — `wakeContainer()` plumbing | computes token once, passes `injectGithubToken` into `buildContainerArgs` (adds value-less `-e GH_TOKEN` **and** `-e NO_PROXY=github.com,api.github.com`), and forwards the value via `spawn(... { env })`. |
+| `src/fork-github-auth.ts` | **All of it.** Deliberately its own module, not inline in `container-runner.ts`: that file is upstream's session-spec composition hot path and gets rewritten often, so keeping our logic out of it turns a seven-hunk merge conflict into three call sites. |
+| `src/fork-github-auth.ts` — `resolveGithubTokenForMounts(mounts)` | Scans writable mounts for `.git/config` matching `doppenhe/*`; if any, calls `gh auth token -u doppenhe`. Throws loudly if `gh auth` fails. |
+| `src/fork-github-auth.ts` — `composeGithubTokenMount(...)` | Writes the token to `data/gh-tokens/<session>.token` at 0600 and returns a read-only mount to `/run/nanoclaw/gh-token`, classed `allowlisted-extra`. |
+| `src/fork-github-auth.ts` — `githubAuthEnv(mounts)` | Derives `GH_TOKEN_FILE` + `NO_PROXY` **from the composed mounts**, so the pointer and the file can never disagree. Empty for the common session. |
+| `src/fork-github-auth.ts` — `cleanupGithubTokenFile(id)` | Called from the exit path; a live credential does not outlive its session. |
+| `src/container-runner.ts` | Three lines only: the import, `composeGithubTokenMount(...)` at the end of `buildMounts()` (after operator `additionalMounts`, which is how a doppenhe checkout usually arrives), and `...githubAuthEnv(mounts)` in `composeSessionSpec()`'s `env`. |
+| `container/Dockerfile` — system git credential helper | Reads `$GH_TOKEN_FILE` and `cat`s it; falls back to `$GH_TOKEN` so a hand-run container still authenticates. Responds only to `get`, never persists. |
+| `src/fork-github-auth.test.ts` | Pins **both** directions against the real `validateSpec`. |
 
 **Why:** Major's content/wiki workflows require `git push` from inside the container directly to `doppenhe/major_content` and `doppenhe/major_wiki`.
+
+**How it broke and why the shape changed:** upstream's session-driver seam
+(2026-08-18) added `validateSpec` in `src/drivers/types.ts`, which refuses a
+`_TOKEN`-suffixed key on the `env` lane and a `gho_`/`ghp_`-shaped *value* on
+both `env` and `contributedEnv`. Admission is fail-closed, so the old shape
+would not have degraded — it would have aborted every spawn that mounts a
+doppenhe checkout. The sanctioned alternative is the by-reference pattern the
+same file documents: material in a file, mounted read-only, **path** in the env
+var. `isSecretShaped` short-circuits to `false` on an absolute-path value
+precisely so this works.
+
+**Why the token file lives in `data/gh-tokens/`, not the session dir:** the
+session directory is mounted read-write at `/workspace`. A token placed there
+would be readable — and committable — from the agent's own working tree.
+
+**Why `allowlisted-extra`:** `group-state` is pinned by admission to the
+session's own `groups/<folder>` or `v2-sessions/<group>` subtree, and this path
+is under neither. `identity-material` is barred from the agent role outright.
+`allowlisted-extra` is the only class that admits a host-composed mount at an
+arbitrary path. The test suite pins this so it is not "tidied" into a class that
+reads more correct but cannot be realized.
+
+**What this does NOT buy:** the same exposure as before. An agent that can read
+`/run/nanoclaw/gh-token` holds a GitHub token exactly as it did when the token
+sat in its environment. What changed is that admission can see the mount and
+reason about it. Removing the exposure needs short-lived per-session tokens —
+designed in [design/github-app-tokens.md](design/github-app-tokens.md), not built.
+
+**Do not "simplify" this back to an env var.** `src/fork-github-auth.test.ts`
+asserts the old shape is still refused, so the suite will catch it — that
+assertion is the point of the test, not incidental coverage.
 
 **Why bypass OneCLI for github specifically:** OneCLI's proxy special-cases `github.com` — it ignores `generic` vault secrets for that host and expects its own GitHub OAuth-app connection. A raw PAT in the vault is silently rejected (`HTTP 401 "invalid credentials"`). Bypassing the proxy for `github.com` lets the existing credential-helper + `$GH_TOKEN` path work. The PAT lives in Bitwarden (record-of-truth) and gh CLI (host-side credential store, queried per spawn). Tested 2026-05-20: clone + push from inside a fresh container succeeded only with NO_PROXY set; failed with `remote: invalid credentials` without it.
 
 **Rotation:** generate fresh fine-grained PAT (Contents:RW on `major_content` + `major_wiki`), save to Bitwarden as `GITHUB_PAT_DOPPENHE`, then `echo <pat> | gh auth login --hostname github.com --with-token`. No restart needed — the next container spawn re-reads `gh auth token`.
 
 **Failure mode:** if a `doppenhe/*` repo is mounted but `gh auth token -u doppenhe` errors, the spawn throws. No silent degradation. Fix: `gh auth login --hostname github.com --with-token`.
+
+### Telegram adapter — tracks `upstream/channels`, no longer vendored
+
+| What | Where |
+|---|---|
+| `src/channels/telegram.ts`, `src/channels/telegram-pairing.ts` (+ its test) | Refreshed from `upstream/channels` on 2026-08-23. **Not ours to edit** — refresh, don't patch. |
+| `src/channels/telegram-markdown-sanitize.ts` (+ test) | **DELETED 2026-08-23.** Do not re-add. |
+| `package.json` | `@chat-adapter/telegram` pinned `4.29.0` (fork commit f3846ecf). |
+
+**Why the sanitizer is gone:** we carried a `transformOutboundText` hook that
+downgraded legacy Markdown for the old converter. `@chat-adapter/telegram` >=
+4.29 parses CommonMark and renders escaped MarkdownV2 itself, and running our
+sanitizer in front of it turned `**bold**` into `*single-star*`, which the
+adapter then parsed as emphasis and rendered *italic*. Upstream removed the hook
+deliberately and documents the reason inline. We were pinned at 4.29.0 already,
+so deleting it fixed a formatting bug we had been living with. Nothing else
+imported it.
+
+**Refresh procedure** (part of every upgrade — see the correction at the top):
+
+```bash
+git fetch upstream channels
+for f in src/channels/telegram.ts src/channels/telegram-pairing.ts \
+         src/channels/telegram-pairing.test.ts; do
+  git checkout upstream/channels -- "$f"
+done
+```
+
+If a refresh drops a file we still import, that is upstream retiring the
+mechanism — read their inline comment before reinstating anything.
 
 ### Credential pattern (post 2026-05-20 consolidation)
 
@@ -45,7 +152,7 @@ The "BW + OneCLI" pattern is now the standard for HTTP API keys; git auth is the
 | Anthropic API | (existing) | `Anthropic` | proxy (native handling) | All agents |
 | AI Tinkerers | `AITINKERERS_API_KEY` | `AITINKERERS_API_KEY` host=`aitinkerers.org` Bearer | proxy header inject | telegram_main `ait-api` skill |
 | Scrapecreators | (user choice) | `SCRAPECREATORS_API_KEY` host=`api.scrapecreators.com` `x-api-key` | proxy header inject | (no active consumer; future skills) |
-| GitHub PAT (doppenhe) | `GITHUB_PAT_DOPPENHE` | **not in vault** (proxy can't inject) | env var `$GH_TOKEN` via gh CLI + git credential helper, bypassing proxy via NO_PROXY | container-runner.ts for `doppenhe/*` repo mounts |
+| GitHub PAT (doppenhe) | `GITHUB_PAT_DOPPENHE` | **not in vault** (proxy can't inject) | 0600 host file, read-only mount at `/run/nanoclaw/gh-token`, path in `$GH_TOKEN_FILE`; git credential helper `cat`s it, bypassing proxy via NO_PROXY | `src/fork-github-auth.ts` for `doppenhe/*` repo mounts |
 
 Plaintext key files (`*.ait_api_key`, `aitinkerers_api_key.txt`, `.scrape_creators_key`, `.github_token`) are banned. Browser sessions (`twitter_session.json`, `linkedin_session.json`) remain as files because they're multi-value cookie blobs that refresh in-use — different shape from API keys, no OneCLI fit.
 
@@ -139,7 +246,7 @@ Verified from inside fresh containers with curl, Node (`NODE_USE_ENV_PROXY` / un
 | What | Where |
 |---|---|
 | `src/claude-md-compose.ts` — `migrateGroupsToClaudeLocal()` | guard the `groups/global/` delete on `!fs.existsSync(.git)`. |
-| `src/container-runner.ts` — `buildMounts()` global block | mount `groups/global` RW when it's a git checkout, RO otherwise. |
+| `src/container-runner.ts` — `buildMounts()` global block | mount `groups/global` RW when it's a git checkout, RO otherwise. Since 2026-08-23 the literal also carries `mountClass: 'allowlisted-extra'` and `scope` — it lives under `GROUPS_DIR` but outside any single `groups/<folder>`, so `group-state` is denied by admission's folder-label scope pin, and it is not a release surface. |
 
 **Why:** Upstream v2 deletes `groups/global/` on every host start (assumes it was just a leftover v1 global memory file replaced by `container/CLAUDE.md`). This install uses `groups/global/` as a `doppenhe/major_wiki` git checkout — a multi-agent shared knowledge base. Without this guard, every host restart wipes the wiki dir.
 
