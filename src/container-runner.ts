@@ -1162,7 +1162,6 @@ export async function buildMounts(
     });
   }
 
-
   // Per-group .claude-shared at /home/node/.claude (provider state, settings,
   // skill symlinks). Per agent group, not per session.
   if (contract) {

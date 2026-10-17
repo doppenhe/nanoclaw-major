@@ -84,6 +84,12 @@
       "kind": "version",
       "source": ".claude/skills/add-onecli/versions.json",
       "why": "read by the skill's own scripts; Dependabot does not read versions.json"
+    },
+    {
+      "pin": "SHMEM_VERSION=<from",
+      "kind": "binary (Dockerfile ARG)",
+      "source": ".claude/skills/add-shmem/SKILL.md",
+      "why": "a download pinned by version; no Dependabot ecosystem reads it"
     }
   ]
 }
