@@ -39,8 +39,44 @@ like this one: it meant the only two outcomes were "silently rewrite main" and
 "do nothing and email". Landing on a branch with a draft PR costs nothing when
 the week is boring and gives a review surface when it is not.
 
-The new job never writes to `main`. That is the single biggest robustness win
-and it is worth keeping even when it feels like ceremony.
+The new job never pushes to `main` directly. That is the single biggest
+robustness win and it is worth keeping even when it feels like ceremony. It does
+land its PR — see the 2026-10-17 correction below for why "draft" was the wrong
+way to express "don't rewrite main unattended".
+
+---
+
+## Correction, 2026-10-17: a draft PR is not a landing
+
+The 2026-08-23 rewrite traded "silently rewrite main" for "open a draft PR and
+email". That removed the risk and introduced a quieter failure: **nothing
+landed for eight weeks.** PRs #2, #3, #4, #5, #6 and #7 all sat open as drafts
+from 2026-08-23 to 2026-10-17. A draft PR cannot be merged by anyone or
+anything until a human clicks "Ready for review" first, so the job's success
+path terminated in a notification nobody acted on.
+
+Two things hid it:
+
+**The email said `pr-ready`.** Which was true about the PR and false about the
+upgrade. A status that reads like success when the fork is eight weeks stale is
+worse than a status that reads like failure.
+
+**`main` moved anyway, some weeks.** The runner's push credential is scoped to
+`claude/*` refs and returns HTTP 403 on anything else — but not consistently
+across sessions. On 2026-09-20 and 2026-10-04 the run *could* push `main` and
+did, so the fork advanced often enough that the stall never looked total.
+
+And when the merges finally were examined, CI had been red on `main` itself
+since 2026-10-04 — one stray blank line in `src/container-runner.ts` failing
+`prettier --check`, which is the *first* step of the `test` job, so CI had never
+once reached a typecheck or a test. Even a "merge when green" rule would not
+have fired. A job whose landing step depends on CI must also treat red CI on
+the base branch as its own problem.
+
+**The fix**: the PR opens **ready for review**, not draft, and the job enables
+auto-merge so GitHub lands it when the required checks pass. Nothing merges on
+red CI, nothing merges without a reviewable diff, and nothing waits on a click.
+The job still never pushes `main` directly.
 
 ---
 
@@ -59,7 +95,9 @@ TL;DR and the hotspots), and `.claude/skills/update-nanoclaw/SKILL.md`.
 
 ## Hard rules
 
-- NEVER push to `main`. All work lands on a dated branch plus a draft PR.
+- NEVER push to `main` directly. Work lands on a dated branch, through a PR
+  that is **ready for review, never a draft** — a draft cannot merge, and that
+  is what stalled this job for eight weeks. See Step 12.
 - NEVER use `--no-verify`. NEVER force-push anything you did not create.
 - If a merge dry-run shows MORE than 5 conflicted files, ABORT: no merge, no
   branch, email the report and exit.
@@ -218,23 +256,57 @@ install. Note that its container-name findings assume the upgraded host reaps
 pre-seam containers; it does not (they lack the `role=agent` label the new
 listing filters on), so a *running* one needs a manual stop on the host.
 
-## Step 12 — Push the branch and open a draft PR
+## Step 12 — Push the branch and open the PR
 
 ```
 git push -u origin "$BRANCH"
 ```
 
-Open a DRAFT PR into `main`. Title:
+If the push is refused with HTTP 403, the runner's credential is scoped to
+`claude/*` refs. Do not fight it: push to `claude/upgrade-$TS` instead and
+carry on. Note the branch name you actually used in the email.
+
+Open the PR into `main`. Title:
 `Weekly upgrade <TS>: v<OLD_VERSION> → v<NEW_VERSION> (<BEHIND> commits)`.
+
+**Open it ready for review, never as a draft.** A draft cannot be merged by
+anyone or anything until a human un-drafts it; that is what left six weekly
+upgrades sitting open from 2026-08-23 to 2026-10-17.
 
 Follow `.github/PULL_REQUEST_TEMPLATE.md`. The body must state: build result,
 test counts, typecheck result, every breaking change, every DROPPED
 CUSTOMIZATION, every retired adapter file, and the backup ref. If the build
 failed, put that in the first line of the body.
 
-STATUS=`pr-ready` if the build passed, `pr-broken` if it did not.
+### Landing it
 
-Never merge the PR. Never push to `main`.
+- **Build failed** → leave the PR open, do not merge, do not enable auto-merge.
+  STATUS=`pr-broken`.
+- **Build passed** → enable auto-merge (merge commit). GitHub lands it when the
+  required checks pass. STATUS=`merged` if it lands before you finish,
+  `pr-automerge-armed` if it is still waiting on checks.
+- **Auto-merge unavailable** (not enabled on the repo, or no required checks
+  configured) → wait for the `CI` workflow to conclude on your head SHA, then
+  merge via the API only if it concluded `success`. If it concluded `failure`,
+  STATUS=`ci-red`: leave the PR open and report which job failed.
+
+Never merge on red `CI`, and never push to `main` directly — the PR is the only
+path in.
+
+**Known-red check.** The `Registry skills` workflow (`discover`,
+`provider-promotion`, `registry gate`) fails on every fork branch *and* on
+`main`: `resolveRegistryRemote` looks for a git remote carrying the `channels`
+branch, and `origin` has none. It is not a signal about your merge. Do not
+block on it and do not try to fix it from the upgrade PR — report it and move
+on. The fix is two lines per job in `.github/workflows/registry-skills.yml`
+(add a `registry` remote pointing at upstream, set `NANOCLAW_REGISTRY_REMOTE`);
+once that lands, delete this paragraph.
+
+**If CI is red for a reason that is not your merge** — a failure that
+reproduces on the base branch too — fix it in this PR if it is mechanical
+(formatting, a generated file that needs regenerating) and say so in the email.
+A red base branch means the landing gate can never open, so it is the job's
+problem even though it is not the merge's fault.
 
 ## Step 13 — Email report
 
@@ -260,7 +332,10 @@ Body (markdown), terse — value is in the bullets and the links, not narrative:
 **Upstream commits** (up to 30)
 <bullets>
 
-**To land it**: see docs/UPGRADE-2026-08-23.md for the host-side sequence
+**Landing**: <merged / auto-merge armed, waiting on checks / NOT LANDED, why>
+**Still red**: <any failing check other than the known-red `Registry skills`, or "none">
+
+**On the host**: see docs/UPGRADE-2026-08-23.md for the sequence
 (preflight → merge → deps → build → detector → container rebuild → verify).
 
 Backup ref: branch `backup/<BACKUP>`<, tag `<BACKUP>` if the tag push succeeded>.
@@ -273,6 +348,22 @@ state was captured up to that point.
 ---
 
 ## Design notes
+
+**Why the PR is ready, not draft, and auto-merges.** The goal was never "a
+human approves every upgrade" — nobody was ever going to review 255 commits of
+upstream churn line by line. The goal was "nothing rewrites `main` unattended
+and unverified". Auto-merge on green CI delivers exactly that and nothing more:
+the diff is reviewable if anyone wants it, the backup ref exists, red CI blocks
+the merge, and the fork does not quietly rot while the job reports success every
+Saturday. A draft PR delivered the *appearance* of the same guarantee at the
+cost of the upgrade never happening — see the 2026-10-17 correction.
+
+**Why a red base branch is the job's problem.** The job's landing gate is CI.
+If CI cannot go green on `main` for reasons unrelated to any merge, the gate is
+welded shut and every future run stalls behind it, silently. So the job fixes
+mechanical base-branch breakage (formatting, stale generated files) inside its
+own PR rather than reporting it and stopping. Anything that needs judgement
+still gets reported, not guessed at.
 
 **Why the build failure no longer hard-resets.** The old job deleted the merge
 on a failed build. On 2026-08-23 that threw away a resolved conflict in a file
