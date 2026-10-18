@@ -66,19 +66,23 @@ jobs:
             case "$requested_core" in *[!0-9a-fA-F]*|'') exit 1;; esac
             test ${#requested_core} -eq 40
           fi
+          # The registry branches live on whichever remote carries them, which
+          # in a fork is not `origin`. REG is the remote name the job added
+          # after checkout; it falls back to origin so upstream is unaffected.
+          REG="${NANOCLAW_REGISTRY_REMOTE:-origin}"
           providers="$REQUESTED_PROVIDERS_SHA"
           if [ -n "$providers" ]; then
             case "$providers" in *[!0-9a-fA-F]*|'') exit 1;; esac
             test ${#providers} -eq 40
-            git fetch origin "$providers"
+            git fetch "$REG" "$providers"
             git cat-file -e "$providers^{commit}"
           else
-            git fetch origin providers
-            providers=$(git rev-parse origin/providers)
+            git fetch "$REG" providers
+            providers=$(git rev-parse "$REG/providers")
           fi
-          git fetch origin channels
+          git fetch "$REG" channels
           echo "core=$core" >> "$GITHUB_OUTPUT"
-          echo "channels=$(git rev-parse origin/channels)" >> "$GITHUB_OUTPUT"
+          echo "channels=$(git rev-parse "$REG/channels")" >> "$GITHUB_OUTPUT"
           echo "providers=$providers" >> "$GITHUB_OUTPUT"
 
   test:
