@@ -17,6 +17,15 @@ If you are a fresh install (you ran `git clone`, not `git pull`) and there are n
 
 Personal AI assistant. See [README.md](README.md) for philosophy and setup. Architecture lives in `docs/`.
 
+## Answering style
+
+Lead with the answer. State what to do, or what happened, in the first line or two.
+
+- Put the conclusion first, then stop. Offer detail; don't front-load it.
+- Reasoning, diagnosis, caveats and alternatives go only where asked for, or where acting without them would be wrong.
+- For a command to run: give the command. For a status report: give the status.
+- Prefer a short list to prose, and no narration of work already visible in the output.
+
 ## Quick Context
 
 The host is a single Node process that orchestrates per-session agent containers. Platform messages land via channel adapters, route through an entity model (users → messaging groups → agent groups → sessions), get written into the session's inbound DB, and wake a container. The agent-runner inside the container polls the DB, calls the agent, and writes back to the outbound DB. The host polls the outbound DB and delivers through the same adapter.
