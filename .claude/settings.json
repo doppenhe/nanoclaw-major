@@ -1,4 +1,41 @@
 {
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "shmem hook tool-use --caller-agent claude-code",
+            "timeout": 10,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "shmem hook response --caller-agent claude-code",
+            "statusMessage": "Saving response to memory...",
+            "timeout": 10,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "command": "shmem hook user-message --caller-agent claude-code",
+            "timeout": 10,
+            "statusMessage": "Saving to memory...",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  },
   "sandbox": {
     "enabled": false
   }
