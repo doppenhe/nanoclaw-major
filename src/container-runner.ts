@@ -7,7 +7,7 @@
  * here is composition and lifecycle policy: which mounts, which env, restart
  * ordering, exit bookkeeping.
  */
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -1625,7 +1625,8 @@ function selectedSkillNames(containerConfig: import('./container-config.js').Con
   return selectGatewayAgentSkills(selected);
 }
 
-const execAsync = promisify(exec);
+// Argument lists, not shell strings: DATA_DIR is the install folder, which may hold spaces.
+const execFileAsync = promisify(execFile);
 
 /** Build a per-agent-group Docker image with custom packages. */
 export async function buildAgentGroupImage(agentGroupId: string): Promise<void> {
@@ -1653,7 +1654,13 @@ export async function buildAgentGroupImage(agentGroupId: string): Promise<void> 
   // all and an id is unambiguous either way.
   let baseId = '';
   try {
-    const { stdout } = await execAsync(`${CONTAINER_RUNTIME_BIN} image inspect --format '{{.Id}}' ${CONTAINER_IMAGE}`);
+    const { stdout } = await execFileAsync(CONTAINER_RUNTIME_BIN, [
+      'image',
+      'inspect',
+      '--format',
+      '{{.Id}}',
+      CONTAINER_IMAGE,
+    ]);
     baseId = stdout.trim();
   } catch {
     // Non-fatal: the build below fails on its own if the base is really absent.
@@ -1693,7 +1700,7 @@ export async function buildAgentGroupImage(agentGroupId: string): Promise<void> 
   try {
     // Awaited async exec so the single-threaded host stays responsive during
     // the build (can take minutes) instead of blocking on execSync.
-    await execAsync(`${CONTAINER_RUNTIME_BIN} build -t ${imageTag} -f ${tmpDockerfile} .`, {
+    await execFileAsync(CONTAINER_RUNTIME_BIN, ['build', '-t', imageTag, '-f', tmpDockerfile, '.'], {
       cwd: DATA_DIR,
       timeout: 900_000,
     });
